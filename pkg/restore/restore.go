@@ -1332,7 +1332,9 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 	// Label the resource with the restore's name and the restored backup's name
 	// for easy identification of all cluster resources created by this restore
 	// and which backup they came from.
-	addRestoreLabels(obj, ctx.restore.Name, ctx.restore.Spec.BackupName)
+	backupAnnotation := ctx.backup.Annotations
+	jobTime := backupAnnotation[velerov1api.BackupJobTime]
+	addRestoreLabels(obj, ctx.restore.Name, ctx.restore.Spec.BackupName, jobTime)
 
 	ctx.log.Infof("Attempting to restore %s: %v", obj.GroupVersionKind().Kind, name)
 	createdObj, restoreErr := resourceClient.Create(obj)
@@ -1379,7 +1381,7 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 		// We know the object from the cluster won't have the backup/restore name
 		// labels, so copy them from the object we attempted to restore.
 		labels := obj.GetLabels()
-		addRestoreLabels(fromCluster, labels[velerov1api.RestoreNameLabel], labels[velerov1api.BackupNameLabel])
+		addRestoreLabels(fromCluster, labels[velerov1api.RestoreNameLabel], labels[velerov1api.BackupNameLabel], jobTime)
 		fromClusterWithLabels := fromCluster.DeepCopy() // saving the in-cluster object so that we can create label patch if overall patch fails
 
 		if !equality.Semantic.DeepEqual(fromCluster, obj) {
@@ -1846,13 +1848,14 @@ func resetMetadataAndStatus(obj *unstructured.Unstructured) (*unstructured.Unstr
 
 // addRestoreLabels labels the provided object with the restore name and the
 // restored backup's name.
-func addRestoreLabels(obj metav1.Object, restoreName, backupName string) {
+func addRestoreLabels(obj metav1.Object, restoreName, backupName, jobTime string) {
 	labels := obj.GetLabels()
 
 	if labels == nil {
 		labels = make(map[string]string)
 	}
 
+	labels[velerov1api.BackupFullName] = fmt.Sprintf("%s-%s", backupName, jobTime)
 	labels[velerov1api.BackupNameLabel] = label.GetValidName(backupName)
 	labels[velerov1api.RestoreNameLabel] = label.GetValidName(restoreName)
 
