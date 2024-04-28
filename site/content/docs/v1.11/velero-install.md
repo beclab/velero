@@ -3,7 +3,7 @@ title: "Velero Install CLI"
 layout: docs
 ---
 
-This document serves as a guide to using the `velero install` CLI command to install `velero` server components into your Kubernetes cluster.
+This document serves as a guide to using the `velero install` CLI command to install `velero` server components into your kubernetes cluster.
 
 _NOTE_: `velero install` will, by default, use the CLI's version information to determine the version of the server components to deploy. This behavior may be overridden by using the `--image` flag. Refer to [Building Server Component Container Images][1].
 
@@ -39,7 +39,7 @@ This section provides examples that serve as a starting point for more customize
 ```bash
 velero install --provider gcp --plugins velero/velero-plugin-for-gcp:v1.0.0 --bucket mybucket --secret-file ./gcp-service-account.json
 
-velero install --provider aws --plugins velero/velero-plugin-for-aws:v1.0.0 --bucket backups --secret-file ./aws-iam-creds --backup-location-config region=us-east-2 --snapshot-location-config region=us-east-2 --use-node-agent
+velero install --provider aws --plugins velero/velero-plugin-for-aws:v1.0.0 --bucket backups --provider aws --secret-file ./aws-iam-creds --backup-location-config region=us-east-2 --snapshot-location-config region=us-east-2 --use-node-agent
 
 velero install --provider azure --plugins velero/velero-plugin-for-microsoft-azure:v1.0.0 --bucket $BLOB_CONTAINER --secret-file ./credentials-velero --backup-location-config resourceGroup=$AZURE_BACKUP_RESOURCE_GROUP,storageAccount=$AZURE_STORAGE_ACCOUNT_ID[,subscriptionId=$AZURE_BACKUP_SUBSCRIPTION_ID] --snapshot-location-config apiTimeout=<YOUR_TIMEOUT>[,resourceGroup=$AZURE_BACKUP_RESOURCE_GROUP,subscriptionId=$AZURE_BACKUP_SUBSCRIPTION_ID]
 ```

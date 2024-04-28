@@ -703,16 +703,6 @@ func TestGetDeleteItemActions(t *testing.T) {
 			name:  "No items",
 			names: []string{},
 		},
-		{
-			name:                       "Error getting restartable process",
-			names:                      []string{"velero.io/a", "velero.io/b", "velero.io/c"},
-			newRestartableProcessError: errors.Errorf("NewRestartableProcess"),
-			expectedError:              "NewRestartableProcess",
-		},
-		{
-			name:  "Happy path",
-			names: []string{"velero.io/a", "velero.io/b", "velero.io/c"},
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -749,9 +739,9 @@ func TestGetDeleteItemActions(t *testing.T) {
 				restartableProcess := &restartabletest.MockRestartableProcess{}
 				defer restartableProcess.AssertExpectations(t)
 
-				expected := &restartableDeleteItemAction{
-					key:                 process.KindAndName{Kind: pluginKind, Name: pluginName},
-					sharedPluginProcess: restartableProcess,
+				expected := &riav1cli.RestartableRestoreItemAction{
+					Key:                 process.KindAndName{Kind: pluginKind, Name: pluginName},
+					SharedPluginProcess: restartableProcess,
 				}
 
 				if tc.newRestartableProcessError != nil {

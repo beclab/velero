@@ -19,7 +19,7 @@ package restore
 import (
 	"encoding/json"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/pkg/errors"
 	corev1api "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -33,6 +33,7 @@ func mergeServiceAccounts(fromCluster, fromBackup *unstructured.Unstructured) (*
 	desired := new(corev1api.ServiceAccount)
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(fromCluster.UnstructuredContent(), desired); err != nil {
 		return nil, errors.Wrap(err, "unable to convert from-cluster service account from unstructured to serviceaccount")
+
 	}
 
 	backupSA := new(corev1api.ServiceAccount)

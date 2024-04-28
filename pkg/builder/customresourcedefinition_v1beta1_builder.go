@@ -48,17 +48,17 @@ func (c *CustomResourceDefinitionV1Beta1Builder) Condition(cond apiextv1beta1.Cu
 }
 
 // Result returns the built CustomResourceDefinition.
-func (c *CustomResourceDefinitionV1Beta1Builder) Result() *apiextv1beta1.CustomResourceDefinition {
-	return c.object
+func (b *CustomResourceDefinitionV1Beta1Builder) Result() *apiextv1beta1.CustomResourceDefinition {
+	return b.object
 }
 
 // ObjectMeta applies functional options to the CustomResourceDefinition's ObjectMeta.
-func (c *CustomResourceDefinitionV1Beta1Builder) ObjectMeta(opts ...ObjectMetaOpt) *CustomResourceDefinitionV1Beta1Builder {
+func (b *CustomResourceDefinitionV1Beta1Builder) ObjectMeta(opts ...ObjectMetaOpt) *CustomResourceDefinitionV1Beta1Builder {
 	for _, opt := range opts {
-		opt(c.object)
+		opt(b.object)
 	}
 
-	return c
+	return b
 }
 
 // CustomResourceDefinitionV1Beta1ConditionBuilder builds CustomResourceDefinitionV1Beta1Condition objects.

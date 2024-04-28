@@ -162,9 +162,7 @@ func getKubectlVersion() (string, error) {
 	case <-time.After(kubectlTimeout):
 		// we don't care about the possible error returned from Kill() here,
 		// just return an empty string
-		if err := kubectlCmd.Process.Kill(); err != nil {
-			return "", fmt.Errorf("error killing kubectl process: %w", err)
-		}
+		kubectlCmd.Process.Kill()
 		return "", errors.New("timeout waiting for kubectl version")
 
 	case err := <-done:

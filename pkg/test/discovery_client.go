@@ -73,7 +73,7 @@ func (c *DiscoveryClient) WithAPIResource(resource *APIResource) *DiscoveryClien
 		Namespaced:   resource.Namespaced,
 		Group:        resource.Group,
 		Version:      resource.Version,
-		Kind:         resource.Kind,
+		Kind:         strings.Title(strings.TrimSuffix(resource.Name, "s")),
 		Verbs:        metav1.Verbs([]string{"list", "create", "get", "delete"}),
 		ShortNames:   []string{resource.ShortName},
 	})

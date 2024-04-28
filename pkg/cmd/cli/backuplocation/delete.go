@@ -31,8 +31,9 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
 	"github.com/vmware-tanzu/velero/pkg/cmd/cli"
-	"github.com/vmware-tanzu/velero/pkg/cmd/util/confirm"
 )
+
+const bslLabelKey = "velero.io/storage-location"
 
 // NewDeleteCommand creates and returns a new cobra command for deleting backup-locations.
 func NewDeleteCommand(f client.Factory, use string) *cobra.Command {
@@ -68,7 +69,7 @@ func NewDeleteCommand(f client.Factory, use string) *cobra.Command {
 
 // Run performs the delete backup-location operation.
 func Run(f client.Factory, o *cli.DeleteOptions) error {
-	if !o.Confirm && !confirm.GetConfirmation() {
+	if !o.Confirm && !cli.GetConfirmation() {
 		// Don't do anything unless we get confirmation
 		return nil
 	}
@@ -145,7 +146,7 @@ func findAssociatedBackups(client kbclient.Client, bslName, ns string) (velerov1
 	var backups velerov1api.BackupList
 	err := client.List(context.Background(), &backups, &kbclient.ListOptions{
 		Namespace: ns,
-		Raw:       &metav1.ListOptions{LabelSelector: velerov1api.StorageLocationLabel + "=" + bslName},
+		Raw:       &metav1.ListOptions{LabelSelector: bslLabelKey + "=" + bslName},
 	})
 	return backups, err
 }
@@ -154,7 +155,7 @@ func findAssociatedBackupRepos(client kbclient.Client, bslName, ns string) (vele
 	var repos velerov1api.BackupRepositoryList
 	err := client.List(context.Background(), &repos, &kbclient.ListOptions{
 		Namespace: ns,
-		Raw:       &metav1.ListOptions{LabelSelector: velerov1api.StorageLocationLabel + "=" + bslName},
+		Raw:       &metav1.ListOptions{LabelSelector: bslLabelKey + "=" + bslName},
 	})
 	return repos, err
 }

@@ -35,13 +35,16 @@ package basic
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 
+	. "github.com/vmware-tanzu/velero/test/e2e"
 	. "github.com/vmware-tanzu/velero/test/e2e/test"
-	. "github.com/vmware-tanzu/velero/test/util/k8s"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/k8s"
 )
 
 type RBACCase struct {
@@ -49,15 +52,15 @@ type RBACCase struct {
 }
 
 func (r *RBACCase) Init() error {
-	r.TestCase.Init()
-	r.CaseBaseName = "rabc-" + r.UUIDgen
-	r.BackupName = "backup-" + r.CaseBaseName
-	r.RestoreName = "restore-" + r.CaseBaseName
+	rand.Seed(time.Now().UnixNano())
+	UUIDgen, _ = uuid.NewRandom()
+	r.BackupName = "backup-rbac" + UUIDgen.String()
+	r.RestoreName = "restore-rbac" + UUIDgen.String()
+	r.NSBaseName = "rabc-" + UUIDgen.String()
 	r.NamespacesTotal = 1
 	r.NSIncluded = &[]string{}
-
 	for nsNum := 0; nsNum < r.NamespacesTotal; nsNum++ {
-		createNSName := fmt.Sprintf("%s-%00000d", r.CaseBaseName, nsNum)
+		createNSName := fmt.Sprintf("%s-%00000d", r.NSBaseName, nsNum)
 		*r.NSIncluded = append(*r.NSIncluded, createNSName)
 	}
 	r.TestMsg = &TestMSG{
@@ -66,33 +69,35 @@ func (r *RBACCase) Init() error {
 		FailedMSG: "Failed to successfully backup and restore RBAC",
 	}
 	r.BackupArgs = []string{
-		"create", "--namespace", r.VeleroCfg.VeleroNamespace, "backup", r.BackupName,
+		"create", "--namespace", VeleroCfg.VeleroNamespace, "backup", r.BackupName,
 		"--include-namespaces", strings.Join(*r.NSIncluded, ","),
 		"--default-volumes-to-fs-backup", "--wait",
 	}
+
 	r.RestoreArgs = []string{
-		"create", "--namespace", r.VeleroCfg.VeleroNamespace, "restore", r.RestoreName,
+		"create", "--namespace", VeleroCfg.VeleroNamespace, "restore", r.RestoreName,
 		"--from-backup", r.BackupName, "--wait",
 	}
-
+	r.VeleroCfg = VeleroCfg
+	r.Client = *r.VeleroCfg.ClientToInstallVelero
 	return nil
 }
 
 func (r *RBACCase) CreateResources() error {
-	r.Ctx, r.CtxCancel = context.WithTimeout(context.Background(), 10*time.Minute)
+	r.Ctx, _ = context.WithTimeout(context.Background(), 10*time.Minute)
 	for nsNum := 0; nsNum < r.NamespacesTotal; nsNum++ {
-		createNSName := fmt.Sprintf("%s-%00000d", r.CaseBaseName, nsNum)
+		createNSName := fmt.Sprintf("%s-%00000d", r.NSBaseName, nsNum)
 		fmt.Printf("Creating namespaces ...%s\n", createNSName)
 		if err := CreateNamespace(r.Ctx, r.Client, createNSName); err != nil {
 			return errors.Wrapf(err, "Failed to create namespace %s", createNSName)
 		}
-		serviceAccountName := fmt.Sprintf("service-account-%s-%00000d", r.CaseBaseName, nsNum)
+		serviceAccountName := fmt.Sprintf("service-account-%s-%00000d", r.NSBaseName, nsNum)
 		fmt.Printf("Creating service account ...%s\n", createNSName)
 		if err := CreateServiceAccount(r.Ctx, r.Client, createNSName, serviceAccountName); err != nil {
 			return errors.Wrapf(err, "Failed to create service account %s", serviceAccountName)
 		}
-		clusterRoleName := fmt.Sprintf("clusterrole-%s-%00000d", r.CaseBaseName, nsNum)
-		clusterRoleBindingName := fmt.Sprintf("clusterrolebinding-%s-%00000d", r.CaseBaseName, nsNum)
+		clusterRoleName := fmt.Sprintf("clusterrole-%s-%00000d", r.NSBaseName, nsNum)
+		clusterRoleBindingName := fmt.Sprintf("clusterrolebinding-%s-%00000d", r.NSBaseName, nsNum)
 		if err := CreateRBACWithBindingSA(r.Ctx, r.Client, createNSName, serviceAccountName, clusterRoleName, clusterRoleBindingName); err != nil {
 			return errors.Wrapf(err, "Failed to create cluster role %s with role binding %s", clusterRoleName, clusterRoleBindingName)
 		}
@@ -102,10 +107,11 @@ func (r *RBACCase) CreateResources() error {
 
 func (r *RBACCase) Verify() error {
 	for nsNum := 0; nsNum < r.NamespacesTotal; nsNum++ {
-		checkNSName := fmt.Sprintf("%s-%00000d", r.CaseBaseName, nsNum)
-		checkServiceAccountName := fmt.Sprintf("service-account-%s-%00000d", r.CaseBaseName, nsNum)
-		checkClusterRoleName := fmt.Sprintf("clusterrole-%s-%00000d", r.CaseBaseName, nsNum)
-		checkClusterRoleBindingName := fmt.Sprintf("clusterrolebinding-%s-%00000d", r.CaseBaseName, nsNum)
+		checkNSName := fmt.Sprintf("%s-%00000d", r.NSBaseName, nsNum)
+		checkServiceAccountName := fmt.Sprintf("service-account-%s-%00000d", r.NSBaseName, nsNum)
+		checkClusterRoleName := fmt.Sprintf("clusterrole-%s-%00000d", r.NSBaseName, nsNum)
+		checkClusterRoleBindingName := fmt.Sprintf("clusterrolebinding-%s-%00000d", r.NSBaseName, nsNum)
+
 		checkNS, err := GetNamespace(r.Ctx, r.Client, checkNSName)
 		if err != nil {
 			return errors.Wrapf(err, "Could not retrieve test namespace %s", checkNSName)
@@ -159,18 +165,18 @@ func (r *RBACCase) Verify() error {
 
 func (r *RBACCase) Destroy() error {
 	//cleanup clusterrole
-	err := CleanupClusterRole(r.Ctx, r.Client, r.CaseBaseName)
+	err := CleanupClusterRole(r.Ctx, r.Client, r.NSBaseName)
 	if err != nil {
 		return errors.Wrap(err, "Could not cleanup clusterroles")
 	}
 
 	//cleanup cluster rolebinding
-	err = CleanupClusterRoleBinding(r.Ctx, r.Client, r.CaseBaseName)
+	err = CleanupClusterRoleBinding(r.Ctx, r.Client, r.NSBaseName)
 	if err != nil {
 		return errors.Wrap(err, "Could not cleanup clusterrolebindings")
 	}
 
-	err = CleanupNamespacesWithPoll(r.Ctx, r.Client, r.CaseBaseName)
+	err = CleanupNamespacesWithPoll(r.Ctx, r.Client, r.NSBaseName)
 	if err != nil {
 		return errors.Wrap(err, "Could cleanup retrieve namespaces")
 	}
@@ -179,8 +185,5 @@ func (r *RBACCase) Destroy() error {
 }
 
 func (r *RBACCase) Clean() error {
-	if !r.VeleroCfg.Debug {
-		return r.Destroy()
-	}
-	return nil
+	return r.Destroy()
 }

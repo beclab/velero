@@ -25,13 +25,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
-	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
 	"github.com/vmware-tanzu/velero/pkg/cmd/cli"
-	"github.com/vmware-tanzu/velero/pkg/cmd/util/confirm"
 )
 
 // NewDeleteCommand creates and returns a new cobra command for deleting schedules.
@@ -68,7 +66,7 @@ func NewDeleteCommand(f client.Factory, use string) *cobra.Command {
 
 // Run performs the deletion of schedules.
 func Run(o *cli.DeleteOptions) error {
-	if !o.Confirm && !confirm.GetConfirmation() {
+	if !o.Confirm && !cli.GetConfirmation() {
 		return nil
 	}
 	var (
@@ -78,8 +76,7 @@ func Run(o *cli.DeleteOptions) error {
 	switch {
 	case len(o.Names) > 0:
 		for _, name := range o.Names {
-			schedule := new(velerov1api.Schedule)
-			err := o.Client.Get(context.TODO(), controllerclient.ObjectKey{Namespace: o.Namespace, Name: name}, schedule)
+			schedule, err := o.Client.VeleroV1().Schedules(o.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 			if err != nil {
 				errs = append(errs, errors.WithStack(err))
 				continue
@@ -87,25 +84,19 @@ func Run(o *cli.DeleteOptions) error {
 			schedules = append(schedules, schedule)
 		}
 	default:
-		selector := labels.Everything()
+		selector := labels.Everything().String()
 		if o.Selector.LabelSelector != nil {
-			convertedSelector, err := metav1.LabelSelectorAsSelector(o.Selector.LabelSelector)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			selector = convertedSelector
+			selector = o.Selector.String()
 		}
-		scheduleList := new(velerov1api.ScheduleList)
-		err := o.Client.List(context.TODO(), scheduleList, &controllerclient.ListOptions{
-			Namespace:     o.Namespace,
+		res, err := o.Client.VeleroV1().Schedules(o.Namespace).List(context.TODO(), metav1.ListOptions{
 			LabelSelector: selector,
 		})
 		if err != nil {
 			errs = append(errs, errors.WithStack(err))
 		}
 
-		for i := range scheduleList.Items {
-			schedules = append(schedules, &scheduleList.Items[i])
+		for i := range res.Items {
+			schedules = append(schedules, &res.Items[i])
 		}
 	}
 	if len(schedules) == 0 {
@@ -114,7 +105,7 @@ func Run(o *cli.DeleteOptions) error {
 	}
 
 	for _, s := range schedules {
-		err := o.Client.Delete(context.TODO(), s, &controllerclient.DeleteOptions{})
+		err := o.Client.VeleroV1().Schedules(s.Namespace).Delete(context.TODO(), s.Name, metav1.DeleteOptions{})
 		if err != nil {
 			errs = append(errs, errors.WithStack(err))
 			continue

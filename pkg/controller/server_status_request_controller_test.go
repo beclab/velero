@@ -55,7 +55,7 @@ var _ = Describe("Server Status Request Reconciler", func() {
 	// `now` will be used to set the fake clock's time; capture
 	// it here so it can be referenced in the test case defs.
 	now, err := time.Parse(time.RFC1123, time.RFC1123)
-	Expect(err).ToNot(HaveOccurred())
+	Expect(err).To(BeNil())
 	now = now.Local()
 
 	DescribeTable("a Server Status request",
@@ -63,8 +63,8 @@ var _ = Describe("Server Status Request Reconciler", func() {
 			// Setup reconciler
 			Expect(velerov1api.AddToScheme(scheme.Scheme)).To(Succeed())
 			r := NewServerStatusRequestReconciler(
-				context.Background(),
 				fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(test.req).Build(),
+				context.Background(),
 				test.reqPluginLister,
 				testclocks.NewFakeClock(now),
 				velerotest.NewLogger(),
@@ -79,7 +79,7 @@ var _ = Describe("Server Status Request Reconciler", func() {
 
 			Expect(actualResult).To(BeEquivalentTo(test.expectedRequeue))
 			if test.expectedErrMsg == "" {
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).To(BeNil())
 			} else {
 				Expect(err.Error()).To(BeEquivalentTo(test.expectedErrMsg))
 				return
@@ -92,7 +92,7 @@ var _ = Describe("Server Status Request Reconciler", func() {
 			if test.expected == nil {
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			} else {
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).To(BeNil())
 				Eventually(instance.Status.Phase == test.expected.Status.Phase, timeout).Should(BeTrue())
 			}
 		},

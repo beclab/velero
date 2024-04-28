@@ -274,7 +274,7 @@ No resources found.
 $ kubectl get pods -n cassandra
 No resources found.
 
-$ kubectl get pvc -n cassandra
+$ kubestl get pvc -n cassandra
 No resources found.
 ```
 

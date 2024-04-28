@@ -30,12 +30,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/vmware-tanzu/crash-diagnostics/exec"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
 )
@@ -113,32 +110,30 @@ func (o *option) complete(f client.Factory, fs *pflag.FlagSet) error {
 }
 
 func (o *option) validate(f client.Factory) error {
-	crClient, err := f.KubebuilderClient()
+	kubeClient, err := f.KubeClient()
 	if err != nil {
 		return err
 	}
-	deploymentList := new(appsv1.DeploymentList)
-	selector, err := labels.Parse("component=velero")
-	cmd.CheckError(err)
-	err = crClient.List(context.TODO(), deploymentList, &ctrlclient.ListOptions{
-		Namespace:     o.namespace,
-		LabelSelector: selector,
+	l, err := kubeClient.AppsV1().Deployments(o.namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: "component=velero",
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to check velero deployment")
 	}
-	if len(deploymentList.Items) == 0 {
+	if len(l.Items) == 0 {
 		return fmt.Errorf("velero deployment does not exist in namespace: %s", o.namespace)
 	}
+	veleroClient, err := f.Client()
+	if err != nil {
+		return err
+	}
 	if len(o.backup) > 0 {
-		backup := new(velerov1api.Backup)
-		if err := crClient.Get(context.TODO(), ctrlclient.ObjectKey{Namespace: o.namespace, Name: o.backup}, backup); err != nil {
+		if _, err := veleroClient.VeleroV1().Backups(o.namespace).Get(context.TODO(), o.backup, metav1.GetOptions{}); err != nil {
 			return err
 		}
 	}
 	if len(o.restore) > 0 {
-		restore := new(velerov1api.Restore)
-		if err := crClient.Get(context.TODO(), ctrlclient.ObjectKey{Namespace: o.namespace, Name: o.restore}, restore); err != nil {
+		if _, err := veleroClient.VeleroV1().Restores(o.namespace).Get(context.TODO(), o.restore, metav1.GetOptions{}); err != nil {
 			return err
 		}
 	}

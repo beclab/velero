@@ -25,7 +25,7 @@ import (
 	proto "github.com/vmware-tanzu/velero/pkg/plugin/generated"
 )
 
-// DeleteItemActionPlugin is an implementation of go-plugin's Plugin
+// RestoreItemActionPlugin is an implementation of go-plugin's Plugin
 // interface with support for gRPC for the restore/ItemAction
 // interface.
 type DeleteItemActionPlugin struct {
@@ -33,7 +33,7 @@ type DeleteItemActionPlugin struct {
 	*common.PluginBase
 }
 
-// GRPCClient returns a DeleteItemAction gRPC client.
+// GRPCClient returns a RestoreItemAction gRPC client.
 func (p *DeleteItemActionPlugin) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, clientConn *grpc.ClientConn) (interface{}, error) {
 	return common.NewClientDispenser(p.ClientLogger, clientConn, newDeleteItemActionGRPCClient), nil
 }

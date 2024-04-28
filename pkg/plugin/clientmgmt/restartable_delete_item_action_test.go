@@ -47,7 +47,7 @@ func TestRestartableGetDeleteItemAction(t *testing.T) {
 		{
 			name:          "wrong type",
 			plugin:        3,
-			expectedError: "plugin int is not a DeleteItemAction",
+			expectedError: "int is not a DeleteItemAction!",
 		},
 		{
 			name:   "happy path",

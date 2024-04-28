@@ -6,5 +6,6 @@ layout: docs
 If you would like to completely uninstall Velero from your cluster, the following commands will remove all resources created by `velero install`:
 
 ```bash
-velero uninstall
+kubectl delete namespace/velero clusterrolebinding/velero
+kubectl delete crds -l component=velero
 ```

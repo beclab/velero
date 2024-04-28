@@ -41,10 +41,6 @@ else
     export GIT_TREE_STATE=dirty
 fi
 
-# Verify .goreleaser.yml format first.
-echo "Start to verify .goreleaser.yml format"
-goreleaser check
-
 # $PUBLISH must explicitly be set to 'TRUE' for goreleaser
 # to publish the release to GitHub.
 if [[ "${PUBLISH:-}" != "TRUE" ]]; then
@@ -52,7 +48,7 @@ if [[ "${PUBLISH:-}" != "TRUE" ]]; then
     goreleaser release \
         --clean \
         --release-notes="${RELEASE_NOTES_FILE}" \
-        --snapshot # Generate an unversioned snapshot release, skipping all validations and without publishing any artifacts (implies --skip-publish, --skip-announce and --skip-validate)
+        --skip-publish
 else
     echo "Getting ready to publish"
     goreleaser release \

@@ -101,24 +101,6 @@ Includes cluster-scoped resources. Cannot work with `--include-cluster-scoped-re
 
 For more information read the [Kubernetes label selector documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
 
-### --or-selector
-
-To include the resources that match at least one of the label selectors from the list. Separate the selectors with ` or `. The ` or ` is used as a separator to split label selectors, and it is not an operator.
-
-This option cannot be used together with `--selector`.
-
-* Include resources matching any one of the label selector, `foo=bar` or `baz=qux`
-
-  ```bash
-  velero backup create backup1 --or-selector "foo=bar or baz=qux"
-  ```
-
-* Include resources that are labeled `environment=production` or `env=prod` or `env=production` or `environment=prod`.
-
-  ```bash
-  velero restore create restore-prod --from-backup=prod-backup --or-selector "env in (prod,production) or environment in (prod, production)"
-  ```
-
 ### --include-cluster-scoped-resources
 Kubernetes cluster-scoped resources to include in the backup, formatted as resource.group, such as `storageclasses.storage.k8s.io`(use '*' for all resources). Cannot work with `--include-resources`, `--exclude-resources` and `--include-cluster-resources`. This parameter only works for backup, not for restore.
 
@@ -262,8 +244,8 @@ Velero only support volume resource policies currently, other kinds of resource 
           driver: aws.ebs.csi.driver
         # pv matches one of the storage class list
         storageClass:
-          - gp2
-          - standard
+        - gp2
+        - standard
       action:
         type: skip
     - conditions:
@@ -287,14 +269,6 @@ Velero only support volume resource policies currently, other kinds of resource 
     - conditions:
         # csi could be empty which matches any csi volume source
         csi: {}
-      action:
-        type: skip
-    - conditions:
-        volumeTypes:
-          - emptyDir
-          - downwardAPI
-          - configmap
-          - cinder
       action:
         type: skip
     ```
@@ -343,19 +317,6 @@ Velero supported conditions and format listed below:
       path: /mnt/nfs
     ```
     For volume provisioned by [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes) support all above attributes, but for pod [Volume](https://kubernetes.io/docs/concepts/storage/volumes) only support filtered by volume source.
-
-- volume types
-
-  Support filter volumes by types
-  ```yaml
-  volumeTypes: 
-    # matches volumes listed below
-    - emptyDir
-    - downwardAPI
-    - configmap
-    - cinder
-  ```
-   Volume types could be found in [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes) and pod [Volume](https://kubernetes.io/docs/concepts/storage/volumes)
 
 **Resource policies rules**
 - Velero already has lots of include or exclude filters. the resource policies are the final filters after others include or exclude filters in one backup processing workflow. So if use a defined similar filter like the opt-in approach to backup one pod volume but skip backup of the same pod volume in resource policies, as resource policies are the final filters that are applied, the volume will not be backed up.

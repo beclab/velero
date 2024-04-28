@@ -19,8 +19,6 @@ package v1
 import (
 	corev1api "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/vmware-tanzu/velero/pkg/apis/velero/shared"
 )
 
 // PodVolumeBackupSpec is the specification for a PodVolumeBackup.
@@ -51,12 +49,6 @@ type PodVolumeBackupSpec struct {
 	// volume backup as tags.
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
-
-	// UploaderSettings are a map of key-value pairs that should be applied to the
-	// uploader configuration.
-	// +optional
-	// +nullable
-	UploaderSettings map[string]string `json:"uploaderSettings,omitempty"`
 }
 
 // PodVolumeBackupPhase represents the lifecycle phase of a PodVolumeBackup.
@@ -108,7 +100,7 @@ type PodVolumeBackupStatus struct {
 	// number of backed up bytes. This can be used to display progress information
 	// about the backup operation.
 	// +optional
-	Progress shared.DataMoveOperationProgress `json:"progress,omitempty"`
+	Progress PodVolumeOperationProgress `json:"progress,omitempty"`
 }
 
 // TODO(2.0) After converting all resources to use the runttime-controller client,
@@ -120,6 +112,7 @@ type PodVolumeBackupStatus struct {
 // +kubebuilder:printcolumn:name="Namespace",type="string",JSONPath=".spec.pod.namespace",description="Namespace of the pod containing the volume to be backed up"
 // +kubebuilder:printcolumn:name="Pod",type="string",JSONPath=".spec.pod.name",description="Name of the pod containing the volume to be backed up"
 // +kubebuilder:printcolumn:name="Volume",type="string",JSONPath=".spec.volume",description="Name of the volume to be backed up"
+// +kubebuilder:printcolumn:name="Repository ID",type="string",JSONPath=".spec.repoIdentifier",description="Backup repository identifier for this backup"
 // +kubebuilder:printcolumn:name="Uploader Type",type="string",JSONPath=".spec.uploaderType",description="The type of the uploader to handle data transfer"
 // +kubebuilder:printcolumn:name="Storage Location",type="string",JSONPath=".spec.backupStorageLocation",description="Name of the Backup Storage Location where this backup should be stored"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

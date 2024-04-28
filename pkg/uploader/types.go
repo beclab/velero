@@ -22,19 +22,8 @@ import (
 )
 
 const (
-	ResticType           = "restic"
-	KopiaType            = "kopia"
-	SnapshotRequesterTag = "snapshot-requester"
-	SnapshotUploaderTag  = "snapshot-uploader"
-)
-
-type PersistentVolumeMode string
-
-const (
-	// PersistentVolumeBlock means the volume will not be formatted with a filesystem and will remain a raw block device.
-	PersistentVolumeBlock PersistentVolumeMode = "Block"
-	// PersistentVolumeFilesystem means the volume will be or is formatted with a filesystem.
-	PersistentVolumeFilesystem PersistentVolumeMode = "Filesystem"
+	ResticType = "restic"
+	KopiaType  = "kopia"
 )
 
 // ValidateUploaderType validates if the input param is a valid uploader type.
@@ -52,13 +41,13 @@ type SnapshotInfo struct {
 	Size int64  `json:"Size"`
 }
 
-// Progress which defined two variables to record progress
-type Progress struct {
+// UploaderProgress which defined two variables to record progress
+type UploaderProgress struct {
 	TotalBytes int64 `json:"totalBytes,omitempty"`
 	BytesDone  int64 `json:"doneBytes,omitempty"`
 }
 
 // UploaderProgress which defined generic interface to update progress
 type ProgressUpdater interface {
-	UpdateProgress(p *Progress)
+	UpdateProgress(p *UploaderProgress)
 }

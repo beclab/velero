@@ -32,7 +32,6 @@ import (
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	pkgbackup "github.com/vmware-tanzu/velero/pkg/backup"
-	veleroclient "github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/label"
 	"github.com/vmware-tanzu/velero/pkg/util/kube"
 )
@@ -88,7 +87,7 @@ func (c *gcReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			},
 		})).
-		WatchesRawSource(s, nil).
+		Watches(s, nil).
 		Complete(c)
 }
 
@@ -188,7 +187,7 @@ func (c *gcReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	log.Info("Creating a new deletion request")
 	ndbr := pkgbackup.NewDeleteBackupRequest(backup.Name, string(backup.UID))
 	ndbr.SetNamespace(backup.Namespace)
-	if err := veleroclient.CreateRetryGenerateName(c, ctx, ndbr); err != nil {
+	if err := c.Create(ctx, ndbr); err != nil {
 		log.WithError(err).Error("error creating DeleteBackupRequests")
 		return ctrl.Result{}, errors.Wrap(err, "error creating DeleteBackupRequest")
 	}

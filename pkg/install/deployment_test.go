@@ -22,8 +22,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
-
-	"github.com/vmware-tanzu/velero/pkg/repository"
 )
 
 func TestDeployment(t *testing.T) {
@@ -45,8 +43,8 @@ func TestDeployment(t *testing.T) {
 	assert.Equal(t, corev1.PullIfNotPresent, deploy.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 
 	deploy = Deployment("velero", WithSecret(true))
-	assert.Len(t, deploy.Spec.Template.Spec.Containers[0].Env, 7)
-	assert.Len(t, deploy.Spec.Template.Spec.Volumes, 3)
+	assert.Equal(t, 7, len(deploy.Spec.Template.Spec.Containers[0].Env))
+	assert.Equal(t, 3, len(deploy.Spec.Template.Spec.Volumes))
 
 	deploy = Deployment("velero", WithDefaultRepoMaintenanceFrequency(24*time.Hour))
 	assert.Len(t, deploy.Spec.Template.Spec.Containers[0].Args, 2)
@@ -66,22 +64,4 @@ func TestDeployment(t *testing.T) {
 
 	deploy = Deployment("velero", WithServiceAccountName("test-sa"))
 	assert.Equal(t, "test-sa", deploy.Spec.Template.Spec.ServiceAccountName)
-
-	deploy = Deployment("velero", WithDisableInformerCache())
-	assert.Len(t, deploy.Spec.Template.Spec.Containers[0].Args, 2)
-	assert.Equal(t, "--disable-informer-cache=true", deploy.Spec.Template.Spec.Containers[0].Args[1])
-
-	deploy = Deployment("velero", WithMaintenanceConfig(repository.MaintenanceConfig{
-		KeepLatestMaitenanceJobs: 3,
-		CPURequest:               "100m",
-		MemRequest:               "256Mi",
-		CPULimit:                 "200m",
-		MemLimit:                 "512Mi",
-	}))
-	assert.Len(t, deploy.Spec.Template.Spec.Containers[0].Args, 6)
-	assert.Equal(t, "--keep-latest-maintenance-jobs=3", deploy.Spec.Template.Spec.Containers[0].Args[1])
-	assert.Equal(t, "--maintenance-job-cpu-limit=200m", deploy.Spec.Template.Spec.Containers[0].Args[2])
-	assert.Equal(t, "--maintenance-job-cpu-request=100m", deploy.Spec.Template.Spec.Containers[0].Args[3])
-	assert.Equal(t, "--maintenance-job-mem-limit=512Mi", deploy.Spec.Template.Spec.Containers[0].Args[4])
-	assert.Equal(t, "--maintenance-job-mem-request=256Mi", deploy.Spec.Template.Spec.Containers[0].Args[5])
 }

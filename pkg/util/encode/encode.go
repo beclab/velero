@@ -25,10 +25,9 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 
 	v1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	"github.com/vmware-tanzu/velero/pkg/util"
+	"github.com/vmware-tanzu/velero/pkg/generated/clientset/versioned/scheme"
 )
 
 // Encode converts the provided object to the specified format
@@ -36,15 +35,15 @@ import (
 func Encode(obj runtime.Object, format string) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
-	if err := To(obj, format, buf); err != nil {
+	if err := EncodeTo(obj, format, buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// To converts the provided object to the specified format and
+// EncodeTo converts the provided object to the specified format and
 // writes the encoded data to the provided io.Writer.
-func To(obj runtime.Object, format string, w io.Writer) error {
+func EncodeTo(obj runtime.Object, format string, w io.Writer) error {
 	encoder, err := EncoderFor(format, obj)
 	if err != nil {
 		return err
@@ -57,11 +56,8 @@ func To(obj runtime.Object, format string, w io.Writer) error {
 // Only objects registered in the velero scheme, or objects with their TypeMeta set will have valid encoders.
 func EncoderFor(format string, obj runtime.Object) (runtime.Encoder, error) {
 	var encoder runtime.Encoder
-
-	codecFactory := serializer.NewCodecFactory(util.VeleroScheme)
-
 	desiredMediaType := fmt.Sprintf("application/%s", format)
-	serializerInfo, found := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), desiredMediaType)
+	serializerInfo, found := runtime.SerializerInfoForMediaType(scheme.Codecs.SupportedMediaTypes(), desiredMediaType)
 	if !found {
 		return nil, errors.Errorf("unable to locate an encoder for %q", desiredMediaType)
 	}
@@ -73,12 +69,12 @@ func EncoderFor(format string, obj runtime.Object) (runtime.Encoder, error) {
 	if !obj.GetObjectKind().GroupVersionKind().Empty() {
 		return encoder, nil
 	}
-	encoder = codecFactory.EncoderForVersion(encoder, v1.SchemeGroupVersion)
+	encoder = scheme.Codecs.EncoderForVersion(encoder, v1.SchemeGroupVersion)
 	return encoder, nil
 }
 
-// ToJSONGzip takes arbitrary Go data and encodes it to GZip compressed JSON in a buffer, as well as a description of the data to put into an error should encoding fail.
-func ToJSONGzip(data interface{}, desc string) (*bytes.Buffer, []error) {
+// EncodeToJSONGzip takes arbitrary Go data and encodes it to GZip compressed JSON in a buffer, as well as a description of the data to put into an error should encoding fail.
+func EncodeToJSONGzip(data interface{}, desc string) (*bytes.Buffer, []error) {
 	buf := new(bytes.Buffer)
 	gzw := gzip.NewWriter(buf)
 

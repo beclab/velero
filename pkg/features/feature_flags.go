@@ -23,7 +23,7 @@ import (
 )
 
 type featureFlagSet struct {
-	set sets.Set[string]
+	set sets.String
 }
 
 // featureFlags will store all the flags for this process until NewFeatureFlagSet is called.
@@ -51,7 +51,7 @@ func Disable(names ...string) {
 
 // All returns enabled features as a slice of strings.
 func All() []string {
-	return sets.List[string](featureFlags.set)
+	return featureFlags.set.List()
 }
 
 // Serialize returns all features as a comma-separated string.
@@ -64,6 +64,6 @@ func Serialize() string {
 // It is also useful for selectively controlling flags during tests.
 func NewFeatureFlagSet(flags ...string) {
 	featureFlags = featureFlagSet{
-		set: sets.New[string](flags...),
+		set: sets.NewString(flags...),
 	}
 }

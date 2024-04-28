@@ -68,11 +68,6 @@ type ObjectWriteOptions struct {
 	Prefix      ID     // A prefix of the name used to save the object
 	AccessMode  int    // OBJECT_DATA_ACCESS_*
 	BackupMode  int    // OBJECT_DATA_BACKUP_*
-	AsyncWrites int    // Num of async writes for the object, 0 means no async write
-}
-
-type AdvancedFeatureInfo struct {
-	MultiPartBackup bool // if set to true, it means the repo supports multiple-part backup
 }
 
 // BackupRepoService is used to initialize, open or maintain a backup repository
@@ -119,12 +114,6 @@ type BackupRepo interface {
 
 	// Flush flushes all the backup repository data
 	Flush(ctx context.Context) error
-
-	// GetAdvancedFeatures returns the support for advanced features
-	GetAdvancedFeatures() AdvancedFeatureInfo
-
-	// ConcatenateObjects is for multiple-part backup, it concatenates multiple objects into one object
-	ConcatenateObjects(ctx context.Context, objectIDs []ID) (ID, error)
 
 	// Time returns the local time of the backup repository. It may be different from the time of the caller
 	Time() time.Time

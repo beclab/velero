@@ -24,8 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -119,9 +117,4 @@ func AssertErrorMatches(t *testing.T, expected string, actual error) bool {
 	}
 
 	return assert.NoError(t, actual)
-}
-
-func CompareSlice(x, y []string) bool {
-	less := func(a, b string) bool { return a < b }
-	return cmp.Diff(x, y, cmpopts.SortSlices(less)) == ""
 }

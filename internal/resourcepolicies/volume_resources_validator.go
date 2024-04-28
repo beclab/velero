@@ -1,18 +1,3 @@
-/*
-Copyright The Velero Contributors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package resourcepolicies
 
 import (
@@ -38,11 +23,10 @@ type nFSVolumeSource struct {
 
 // volumeConditions defined the current format of conditions we parsed
 type volumeConditions struct {
-	Capacity     string            `yaml:"capacity,omitempty"`
-	StorageClass []string          `yaml:"storageClass,omitempty"`
-	NFS          *nFSVolumeSource  `yaml:"nfs,omitempty"`
-	CSI          *csiVolumeSource  `yaml:"csi,omitempty"`
-	VolumeTypes  []SupportedVolume `yaml:"volumeTypes,omitempty"`
+	Capacity     string           `yaml:"capacity,omitempty"`
+	StorageClass []string         `yaml:"storageClass,omitempty"`
+	NFS          *nFSVolumeSource `yaml:"nfs,omitempty"`
+	CSI          *csiVolumeSource `yaml:"csi,omitempty"`
 }
 
 func (c *capacityCondition) validate() error {
@@ -55,6 +39,7 @@ func (c *capacityCondition) validate() error {
 		return nil
 	}
 	return errors.Errorf("illegal values for capacity %v", c.capacity)
+
 }
 
 func (s *storageClassCondition) validate() error {
@@ -82,11 +67,7 @@ func decodeStruct(r io.Reader, s interface{}) error {
 // validate check action format
 func (a *Action) validate() error {
 	// validate Type
-	valid := false
-	if a.Type == Skip || a.Type == Snapshot || a.Type == FSBackup {
-		valid = true
-	}
-	if !valid {
+	if a.Type != Skip {
 		return fmt.Errorf("invalid action type %s", a.Type)
 	}
 

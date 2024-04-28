@@ -82,7 +82,6 @@ example: "@every 2h30m".`,
 
 type CreateOptions struct {
 	BackupOptions              *backup.CreateOptions
-	SkipOptions                *SkipOptions
 	Schedule                   string
 	UseOwnerReferencesInBackup bool
 	Paused                     bool
@@ -91,13 +90,11 @@ type CreateOptions struct {
 func NewCreateOptions() *CreateOptions {
 	return &CreateOptions{
 		BackupOptions: backup.NewCreateOptions(),
-		SkipOptions:   NewSkipOptions(),
 	}
 }
 
 func (o *CreateOptions) BindFlags(flags *pflag.FlagSet) {
 	o.BackupOptions.BindFlags(flags)
-	o.SkipOptions.BindFlags(flags)
 	flags.StringVar(&o.Schedule, "schedule", o.Schedule, "A cron expression specifying a recurring schedule for this backup to run")
 	flags.BoolVar(&o.UseOwnerReferencesInBackup, "use-owner-references-in-backup", o.UseOwnerReferencesInBackup, "Specifies whether to use OwnerReferences on backups created by this Schedule. Notice: if set to true, when schedule is deleted, backups will be deleted too.")
 	flags.BoolVar(&o.Paused, "paused", o.Paused, "Specifies whether the newly created schedule is paused or not.")
@@ -118,7 +115,7 @@ func (o *CreateOptions) Complete(args []string, f client.Factory) error {
 func (o *CreateOptions) Run(c *cobra.Command, f client.Factory) error {
 	var orders map[string]string
 
-	crClient, err := f.KubebuilderClient()
+	veleroClient, err := f.Client()
 	if err != nil {
 		return err
 	}
@@ -148,7 +145,6 @@ func (o *CreateOptions) Run(c *cobra.Command, f client.Factory) error {
 				ExcludedNamespaceScopedResources: o.BackupOptions.ExcludeNamespaceScopedResources,
 				IncludeClusterResources:          o.BackupOptions.IncludeClusterResources.Value,
 				LabelSelector:                    o.BackupOptions.Selector.LabelSelector,
-				OrLabelSelectors:                 o.BackupOptions.OrSelector.OrLabelSelectors,
 				SnapshotVolumes:                  o.BackupOptions.SnapshotVolumes.Value,
 				TTL:                              metav1.Duration{Duration: o.BackupOptions.TTL},
 				StorageLocation:                  o.BackupOptions.StorageLocation,
@@ -157,13 +153,10 @@ func (o *CreateOptions) Run(c *cobra.Command, f client.Factory) error {
 				OrderedResources:                 orders,
 				CSISnapshotTimeout:               metav1.Duration{Duration: o.BackupOptions.CSISnapshotTimeout},
 				ItemOperationTimeout:             metav1.Duration{Duration: o.BackupOptions.ItemOperationTimeout},
-				DataMover:                        o.BackupOptions.DataMover,
-				SnapshotMoveData:                 o.BackupOptions.SnapshotMoveData.Value,
 			},
 			Schedule:                   o.Schedule,
 			UseOwnerReferencesInBackup: &o.UseOwnerReferencesInBackup,
 			Paused:                     o.Paused,
-			SkipImmediately:            o.SkipOptions.SkipImmediately.Value,
 		},
 	}
 
@@ -171,17 +164,11 @@ func (o *CreateOptions) Run(c *cobra.Command, f client.Factory) error {
 		schedule.Spec.Template.ResourcePolicy = &v1.TypedLocalObjectReference{Kind: resourcepolicies.ConfigmapRefType, Name: o.BackupOptions.ResPoliciesConfigmap}
 	}
 
-	if o.BackupOptions.ParallelFilesUpload > 0 {
-		schedule.Spec.Template.UploaderConfig = &api.UploaderConfigForBackup{
-			ParallelFilesUpload: o.BackupOptions.ParallelFilesUpload,
-		}
-	}
-
 	if printed, err := output.PrintWithFormat(c, schedule); printed || err != nil {
 		return err
 	}
 
-	err = crClient.Create(context.TODO(), schedule)
+	_, err = veleroClient.VeleroV1().Schedules(schedule.Namespace).Create(context.TODO(), schedule, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}

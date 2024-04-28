@@ -81,7 +81,7 @@ func (fs *FakeFileSystem) Stat(path string) (os.FileInfo, error) {
 
 func (fs *FakeFileSystem) WithFile(path string, data []byte) *FakeFileSystem {
 	file, _ := fs.fs.Create(path)
-	_, _ = file.Write(data)
+	file.Write(data)
 	file.Close()
 
 	return fs
@@ -89,14 +89,14 @@ func (fs *FakeFileSystem) WithFile(path string, data []byte) *FakeFileSystem {
 
 func (fs *FakeFileSystem) WithFileAndMode(path string, data []byte, mode os.FileMode) *FakeFileSystem {
 	file, _ := fs.fs.OpenFile(path, os.O_CREATE|os.O_RDWR, mode)
-	_, _ = file.Write(data)
+	file.Write(data)
 	file.Close()
 
 	return fs
 }
 
 func (fs *FakeFileSystem) WithDirectory(path string) *FakeFileSystem {
-	_ = fs.fs.MkdirAll(path, 0755)
+	fs.fs.MkdirAll(path, 0755)
 	return fs
 }
 

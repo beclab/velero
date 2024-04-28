@@ -17,6 +17,7 @@ limitations under the License.
 package filtering
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -24,9 +25,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	. "github.com/vmware-tanzu/velero/test"
+	. "github.com/vmware-tanzu/velero/test/e2e"
 	. "github.com/vmware-tanzu/velero/test/e2e/test"
-	. "github.com/vmware-tanzu/velero/test/util/k8s"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/k8s"
 )
 
 /*
@@ -48,9 +49,9 @@ var RestoreWithExcludeResources func() = TestFunc(&ExcludeResources{testInRestor
 
 func (e *ExcludeResources) Init() error {
 	e.FilteringCase.Init()
-	e.CaseBaseName = "exclude-resources-" + e.UUIDgen
+	e.NSBaseName = "exclude-resources-" + UUIDgen.String()
 	for nsNum := 0; nsNum < e.NamespacesTotal; nsNum++ {
-		createNSName := fmt.Sprintf("%s-%00000d", e.CaseBaseName, nsNum)
+		createNSName := fmt.Sprintf("%s-%00000d", e.NSBaseName, nsNum)
 		*e.NSIncluded = append(*e.NSIncluded, createNSName)
 	}
 	if e.IsTestInBackup { // testing case backup with exclude-resources option
@@ -59,34 +60,36 @@ func (e *ExcludeResources) Init() error {
 			Text:      "Should not backup resources which is excluded others should be backup",
 			FailedMSG: "Failed to backup with resource exclude",
 		}
-		e.BackupName = "backup-" + e.CaseBaseName
+		e.BackupName = "backup-exclude-resources-" + UUIDgen.String()
 		e.RestoreName = "restore-" + UUIDgen.String()
 		e.BackupArgs = []string{
-			"create", "--namespace", e.VeleroCfg.VeleroNamespace, "backup", e.BackupName,
+			"create", "--namespace", VeleroCfg.VeleroNamespace, "backup", e.BackupName,
 			"--include-namespaces", strings.Join(*e.NSIncluded, ","),
 			"--exclude-resources", "secrets",
 			"--default-volumes-to-fs-backup", "--wait",
 		}
 
 		e.RestoreArgs = []string{
-			"create", "--namespace", e.VeleroCfg.VeleroNamespace, "restore", e.RestoreName,
+			"create", "--namespace", VeleroCfg.VeleroNamespace, "restore", e.RestoreName,
 			"--from-backup", e.BackupName, "--wait",
 		}
 	} else { // testing case restore with exclude-resources option
-		e.BackupName = "backup-" + e.UUIDgen
-		e.RestoreName = "restore-" + e.CaseBaseName
+		e.BackupName = "backup-" + UUIDgen.String()
+		e.RestoreName = "restore-exclude-resources-" + UUIDgen.String()
 		e.TestMsg = &TestMSG{
 			Desc:      "Restore resources with resources included test",
 			Text:      "Should not restore resources which is excluded others should be backup",
 			FailedMSG: "Failed to restore with resource exclude",
 		}
+		e.BackupName = "backup-exclude-resources-" + UUIDgen.String()
+		e.RestoreName = "restore-exclude-resources-" + UUIDgen.String()
 		e.BackupArgs = []string{
-			"create", "--namespace", e.VeleroCfg.VeleroNamespace, "backup", e.BackupName,
+			"create", "--namespace", VeleroCfg.VeleroNamespace, "backup", e.BackupName,
 			"--include-namespaces", strings.Join(*e.NSIncluded, ","),
 			"--default-volumes-to-fs-backup", "--wait",
 		}
 		e.RestoreArgs = []string{
-			"create", "--namespace", e.VeleroCfg.VeleroNamespace, "restore", e.RestoreName,
+			"create", "--namespace", VeleroCfg.VeleroNamespace, "restore", e.RestoreName,
 			"--exclude-resources", "secrets",
 			"--from-backup", e.BackupName, "--wait",
 		}
@@ -96,15 +99,15 @@ func (e *ExcludeResources) Init() error {
 
 func (e *ExcludeResources) Verify() error {
 	for nsNum := 0; nsNum < e.NamespacesTotal; nsNum++ {
-		namespace := fmt.Sprintf("%s-%00000d", e.CaseBaseName, nsNum)
+		namespace := fmt.Sprintf("%s-%00000d", e.NSBaseName, nsNum)
 		fmt.Printf("Checking resources in namespaces ...%s\n", namespace)
 		//Check deployment
-		_, err := GetDeployment(e.Client.ClientGo, namespace, e.CaseBaseName)
+		_, err := GetDeployment(e.Client.ClientGo, namespace, e.NSBaseName)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to list deployment in namespace: %q", namespace))
 		}
 		//Check secrets
-		secretsList, err := e.Client.ClientGo.CoreV1().Secrets(namespace).List(e.Ctx, metav1.ListOptions{LabelSelector: e.labelSelector})
+		secretsList, err := e.Client.ClientGo.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: e.labelSelector})
 		if err != nil {
 			if apierrors.IsNotFound(err) { //resource should be excluded
 				return nil
@@ -115,7 +118,7 @@ func (e *ExcludeResources) Verify() error {
 		}
 
 		//Check configmap
-		configmapList, err := e.Client.ClientGo.CoreV1().ConfigMaps(namespace).List(e.Ctx, metav1.ListOptions{LabelSelector: e.labelSelector})
+		configmapList, err := e.Client.ClientGo.CoreV1().ConfigMaps(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: e.labelSelector})
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to list configmap in namespace: %q", namespace))
 		} else if len(configmapList.Items) == 0 {

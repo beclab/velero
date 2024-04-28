@@ -9,10 +9,11 @@ import (
 	. "github.com/onsi/gomega"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	. "github.com/vmware-tanzu/velero/test"
+
+	. "github.com/vmware-tanzu/velero/test/e2e"
 	. "github.com/vmware-tanzu/velero/test/e2e/test"
-	. "github.com/vmware-tanzu/velero/test/util/k8s"
-	. "github.com/vmware-tanzu/velero/test/util/velero"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/k8s"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/velero"
 )
 
 type PVCSelectedNodeChanging struct {
@@ -30,20 +31,24 @@ type PVCSelectedNodeChanging struct {
 	ann            string
 }
 
-var PVCSelectedNodeChangingTest func() = TestFunc(&PVCSelectedNodeChanging{})
+const PSNCBaseName string = "psnc-"
+
+var PVCSelectedNodeChangingTest func() = TestFunc(&PVCSelectedNodeChanging{
+	namespace: PSNCBaseName + "1", TestCase: TestCase{NSBaseName: PSNCBaseName}})
 
 func (p *PVCSelectedNodeChanging) Init() error {
-	p.TestCase.Init()
-	p.CaseBaseName = "psnc-" + p.UUIDgen
-	p.namespace = p.CaseBaseName
+	p.VeleroCfg = VeleroCfg
+	p.Client = *p.VeleroCfg.ClientToInstallVelero
+	p.NSBaseName = PSNCBaseName
+	p.namespace = p.NSBaseName + UUIDgen.String()
 	p.mappedNS = p.namespace + "-mapped"
 	p.TestMsg = &TestMSG{
 		Desc:      "Changing PVC node selector",
 		FailedMSG: "Failed to changing PVC node selector",
 		Text:      "Change node selectors of persistent volume claims during restores",
 	}
-	p.BackupName = "backup-" + p.CaseBaseName
-	p.RestoreName = "restore-" + p.CaseBaseName
+	p.BackupName = "backup-sc-" + UUIDgen.String()
+	p.RestoreName = "restore-" + UUIDgen.String()
 	p.labels = map[string]string{"velero.io/plugin-config": "",
 		"velero.io/change-pvc-node-selector": "RestoreItemAction"}
 	p.configmaptName = "change-pvc-node-selector-config"
@@ -51,52 +56,49 @@ func (p *PVCSelectedNodeChanging) Init() error {
 	p.podName = "pod-1"
 	p.pvcName = "pvc-1"
 	p.ann = "volume.kubernetes.io/selected-node"
+	return nil
+}
+
+func (p *PVCSelectedNodeChanging) StartRun() error {
+	p.BackupName = p.BackupName + "backup-" + UUIDgen.String()
+	p.RestoreName = p.RestoreName + "restore-" + UUIDgen.String()
 	p.BackupArgs = []string{
-		"create", "--namespace", p.VeleroCfg.VeleroNamespace, "backup", p.BackupName,
+		"create", "--namespace", VeleroCfg.VeleroNamespace, "backup", p.BackupName,
 		"--include-namespaces", p.namespace,
 		"--snapshot-volumes=false", "--wait",
 	}
 	p.RestoreArgs = []string{
-		"create", "--namespace", p.VeleroCfg.VeleroNamespace, "restore", p.RestoreName,
+		"create", "--namespace", VeleroCfg.VeleroNamespace, "restore", p.RestoreName,
 		"--from-backup", p.BackupName, "--namespace-mappings", fmt.Sprintf("%s:%s", p.namespace, p.mappedNS), "--wait",
 	}
 	return nil
 }
-
 func (p *PVCSelectedNodeChanging) CreateResources() error {
-	p.Ctx, p.CtxCancel = context.WithTimeout(context.Background(), 60*time.Minute)
+	p.Ctx, _ = context.WithTimeout(context.Background(), 60*time.Minute)
 	By(fmt.Sprintf("Create namespace %s", p.namespace), func() {
-		Expect(CreateNamespace(p.Ctx, p.Client, p.namespace)).To(Succeed(),
+		Expect(CreateNamespace(context.Background(), p.Client, p.namespace)).To(Succeed(),
 			fmt.Sprintf("Failed to create namespace %s", p.namespace))
 	})
 
-	By(fmt.Sprintf("Create a storage class %s.", StorageClassName), func() {
-		Expect(InstallStorageClass(context.Background(), fmt.Sprintf("../testdata/storage-class/%s.yaml", p.VeleroCfg.CloudProvider))).To(Succeed())
-	})
-
-	By(fmt.Sprintf("Create a storage class %s.", StorageClassName), func() {
-		Expect(InstallTestStorageClasses(fmt.Sprintf("../testdata/storage-class/%s.yaml", p.VeleroCfg.CloudProvider))).To(Succeed(), "Failed to install storage class")
-	})
-
 	By(fmt.Sprintf("Create pod %s in namespace %s", p.podName, p.namespace), func() {
-		nodeNameList, err := GetWorkerNodes(p.Ctx)
+		nodeNameList, err := GetWorkerNodes(context.Background())
 		Expect(err).To(Succeed())
 		for _, nodeName := range nodeNameList {
 			p.oldNodeName = nodeName
 			fmt.Printf("Create PVC on node %s\n", p.oldNodeName)
 			pvcAnn := map[string]string{p.ann: nodeName}
-			_, err := CreatePod(p.Client, p.namespace, p.podName, StorageClassName, p.pvcName, []string{p.volume}, pvcAnn, nil)
+			_, err := CreatePod(p.Client, p.namespace, p.podName, "default", p.pvcName, []string{p.volume}, pvcAnn, nil)
 			Expect(err).To(Succeed())
-			err = WaitForPods(p.Ctx, p.Client, p.namespace, []string{p.podName})
+			err = WaitForPods(context.Background(), p.Client, p.namespace, []string{p.podName})
 			Expect(err).To(Succeed())
 			break
 		}
 	})
 
 	By("Prepare ConfigMap data", func() {
-		nodeNameList, err := GetWorkerNodes(p.Ctx)
+		nodeNameList, err := GetWorkerNodes(context.Background())
 		Expect(err).To(Succeed())
-		Expect(len(nodeNameList)).To(BeNumerically(">=", 2))
+		Expect(len(nodeNameList) > 2).To(Equal(true))
 		for _, nodeName := range nodeNameList {
 			if nodeName != p.oldNodeName {
 				p.newNodeName = nodeName
@@ -115,16 +117,16 @@ func (p *PVCSelectedNodeChanging) CreateResources() error {
 }
 
 func (p *PVCSelectedNodeChanging) Destroy() error {
-	By(fmt.Sprintf("Start to destroy namespace %s......", p.CaseBaseName), func() {
-		Expect(CleanupNamespacesWithPoll(p.Ctx, p.Client, p.CaseBaseName)).To(Succeed(),
-			fmt.Sprintf("Failed to delete namespace %s", p.CaseBaseName))
+	By(fmt.Sprintf("Start to destroy namespace %s......", p.NSBaseName), func() {
+		Expect(CleanupNamespacesWithPoll(context.Background(), p.Client, p.NSBaseName)).To(Succeed(),
+			fmt.Sprintf("Failed to delete namespace %s", p.NSBaseName))
 	})
 	return nil
 }
 
 func (p *PVCSelectedNodeChanging) Restore() error {
 	By(fmt.Sprintf("Start to restore %s .....", p.RestoreName), func() {
-		Expect(VeleroRestoreExec(p.Ctx, p.VeleroCfg.VeleroCLI,
+		Expect(VeleroRestoreExec(context.Background(), p.VeleroCfg.VeleroCLI,
 			p.VeleroCfg.VeleroNamespace, p.RestoreName,
 			p.RestoreArgs, velerov1api.RestorePhaseCompleted)).To(
 			Succeed(),
@@ -140,22 +142,12 @@ func (p *PVCSelectedNodeChanging) Restore() error {
 }
 func (p *PVCSelectedNodeChanging) Verify() error {
 	By(fmt.Sprintf("PVC selected node should be %s", p.newNodeName), func() {
-		pvcNameList, err := GetPvcByPVCName(p.Ctx, p.mappedNS, p.pvcName)
+		pvcNameList, err := GetPvcByPodName(context.Background(), p.mappedNS, p.pvcName)
 		Expect(err).To(Succeed())
-		Expect(pvcNameList).Should(HaveLen(1))
-		pvc, err := GetPVC(p.Ctx, p.Client, p.mappedNS, pvcNameList[0])
+		Expect(len(pvcNameList)).Should(Equal(1))
+		pvc, err := GetPVC(context.Background(), p.Client, p.mappedNS, pvcNameList[0])
 		Expect(err).To(Succeed())
 		Expect(pvc.Annotations[p.ann]).To(Equal(p.newNodeName))
 	})
-	return nil
-}
-
-func (p *PVCSelectedNodeChanging) Clean() error {
-	if !p.VeleroCfg.Debug {
-		p.TestCase.Clean()
-		By(fmt.Sprintf("Clean namespace with prefix %s after test", p.mappedNS), func() {
-			CleanupNamespaces(p.Ctx, p.Client, p.mappedNS)
-		})
-	}
 	return nil
 }

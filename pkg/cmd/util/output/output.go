@@ -37,7 +37,6 @@ import (
 const (
 	downloadRequestTimeout = 30 * time.Second
 	emptyDisplay           = "<none>"
-	defaultDataMover       = "velero"
 )
 
 // BindFlags defines a set of output-specific flags within the provided
@@ -62,9 +61,7 @@ func ClearOutputFlagDefault(cmd *cobra.Command) {
 		return
 	}
 	f.DefValue = ""
-	if err := f.Value.Set(""); err != nil {
-		fmt.Printf("error clear the default value of output flag: %s\n", err.Error())
-	}
+	f.Value.Set("")
 }
 
 // GetOutputFlagValue returns the value of the "output" flag
@@ -152,74 +149,78 @@ func printTable(cmd *cobra.Command, obj runtime.Object) (bool, error) {
 	// 1. generate table
 	var table *metav1.Table
 
-	switch objType := obj.(type) {
+	switch obj.(type) {
 	case *velerov1api.Backup:
 		table = &metav1.Table{
 			ColumnDefinitions: backupColumns,
-			Rows:              printBackup(objType),
+			Rows:              printBackup(obj.(*velerov1api.Backup)),
 		}
 	case *velerov1api.BackupList:
 		table = &metav1.Table{
 			ColumnDefinitions: backupColumns,
-			Rows:              printBackupList(objType),
+			Rows:              printBackupList(obj.(*velerov1api.BackupList)),
 		}
 	case *velerov1api.Restore:
 		table = &metav1.Table{
 			ColumnDefinitions: restoreColumns,
-			Rows:              printRestore(objType),
+			Rows:              printRestore(obj.(*velerov1api.Restore)),
 		}
 	case *velerov1api.RestoreList:
 		table = &metav1.Table{
 			ColumnDefinitions: restoreColumns,
-			Rows:              printRestoreList(objType),
+			Rows:              printRestoreList(obj.(*velerov1api.RestoreList)),
 		}
 	case *velerov1api.Schedule:
 		table = &metav1.Table{
 			ColumnDefinitions: scheduleColumns,
-			Rows:              printSchedule(objType),
+			Rows:              printSchedule(obj.(*velerov1api.Schedule)),
 		}
 	case *velerov1api.ScheduleList:
 		table = &metav1.Table{
 			ColumnDefinitions: scheduleColumns,
-			Rows:              printScheduleList(objType),
+			Rows:              printScheduleList(obj.(*velerov1api.ScheduleList)),
 		}
 	case *velerov1api.BackupRepository:
 		table = &metav1.Table{
 			ColumnDefinitions: backupRepoColumns,
-			Rows:              printBackupRepo(objType),
+			Rows:              printBackupRepo(obj.(*velerov1api.BackupRepository)),
 		}
 	case *velerov1api.BackupRepositoryList:
 		table = &metav1.Table{
 			ColumnDefinitions: backupRepoColumns,
-			Rows:              printBackupRepoList(objType),
+			Rows:              printBackupRepoList(obj.(*velerov1api.BackupRepositoryList)),
 		}
 	case *velerov1api.BackupStorageLocation:
 		table = &metav1.Table{
 			ColumnDefinitions: backupStorageLocationColumns,
-			Rows:              printBackupStorageLocation(objType),
+			Rows:              printBackupStorageLocation(obj.(*velerov1api.BackupStorageLocation)),
 		}
 	case *velerov1api.BackupStorageLocationList:
 		table = &metav1.Table{
 			ColumnDefinitions: backupStorageLocationColumns,
-			Rows:              printBackupStorageLocationList(objType),
+			Rows:              printBackupStorageLocationList(obj.(*velerov1api.BackupStorageLocationList)),
 		}
 	case *velerov1api.VolumeSnapshotLocation:
 		table = &metav1.Table{
 			ColumnDefinitions: volumeSnapshotLocationColumns,
-			Rows:              printVolumeSnapshotLocation(objType),
+			Rows:              printVolumeSnapshotLocation(obj.(*velerov1api.VolumeSnapshotLocation)),
 		}
 	case *velerov1api.VolumeSnapshotLocationList:
 		table = &metav1.Table{
 			ColumnDefinitions: volumeSnapshotLocationColumns,
-			Rows:              printVolumeSnapshotLocationList(objType),
+			Rows:              printVolumeSnapshotLocationList(obj.(*velerov1api.VolumeSnapshotLocationList)),
 		}
 	case *velerov1api.ServerStatusRequest:
 		table = &metav1.Table{
 			ColumnDefinitions: pluginColumns,
-			Rows:              printPluginList(objType),
+			Rows:              printPluginList(obj.(*velerov1api.ServerStatusRequest)),
 		}
 	default:
 		return false, errors.Errorf("type %T is not supported", obj)
+	}
+
+	if table == nil {
+		return false, errors.Errorf("error generating table for type %T", obj)
 	}
 
 	// 2. print table

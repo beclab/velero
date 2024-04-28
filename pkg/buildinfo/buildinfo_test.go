@@ -49,4 +49,5 @@ func TestFormattedGitSHA(t *testing.T) {
 			assert.Equal(t, FormattedGitSHA(), test.expected)
 		})
 	}
+
 }

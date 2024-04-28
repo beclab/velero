@@ -1,18 +1,3 @@
-/*
-Copyright The Velero Contributors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package resourcepolicies
 
 import (
@@ -121,9 +106,9 @@ func TestLoadResourcePolicies(t *testing.T) {
 }
 
 func TestGetResourceMatchedAction(t *testing.T) {
-	resPolicies := &ResourcePolicies{
+	resPolicies := &resourcePolicies{
 		Version: "v1",
-		VolumePolicies: []VolumePolicy{
+		VolumePolicies: []volumePolicy{
 			{
 				Action: Action{Type: "skip"},
 				Conditions: map[string]interface{}{
@@ -136,7 +121,7 @@ func TestGetResourceMatchedAction(t *testing.T) {
 				},
 			},
 			{
-				Action: Action{Type: "snapshot"},
+				Action: Action{Type: "volume-snapshot"},
 				Conditions: map[string]interface{}{
 					"capacity":     "10,100Gi",
 					"storageClass": []string{"gp2", "ebs-sc"},
@@ -147,7 +132,7 @@ func TestGetResourceMatchedAction(t *testing.T) {
 				},
 			},
 			{
-				Action: Action{Type: "fs-backup"},
+				Action: Action{Type: "file-system-backup"},
 				Conditions: map[string]interface{}{
 					"storageClass": []string{"gp2", "ebs-sc"},
 					"csi": interface{}(
@@ -179,7 +164,7 @@ func TestGetResourceMatchedAction(t *testing.T) {
 				storageClass: "ebs-sc",
 				csi:          &csiVolumeSource{Driver: "aws.efs.csi.driver"},
 			},
-			expectedAction: &Action{Type: "snapshot"},
+			expectedAction: &Action{Type: "volume-snapshot"},
 		},
 		{
 			name: "dismatch all policies",
@@ -195,7 +180,7 @@ func TestGetResourceMatchedAction(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			policies := &Policies{}
-			err := policies.BuildPolicy(resPolicies)
+			err := policies.buildPolicy(resPolicies)
 			if err != nil {
 				t.Errorf("Failed to build policy with error %v", err)
 			}
@@ -237,9 +222,9 @@ func TestGetResourcePoliciesFromConfig(t *testing.T) {
 	// Check that the returned resourcePolicies object contains the expected data
 	assert.Equal(t, "v1", resPolicies.version)
 	assert.Len(t, resPolicies.volumePolicies, 1)
-	policies := ResourcePolicies{
+	policies := resourcePolicies{
 		Version: "v1",
-		VolumePolicies: []VolumePolicy{
+		VolumePolicies: []volumePolicy{
 			{
 				Conditions: map[string]interface{}{
 					"capacity": "0,10Gi",
@@ -251,7 +236,7 @@ func TestGetResourcePoliciesFromConfig(t *testing.T) {
 		},
 	}
 	p := &Policies{}
-	err = p.BuildPolicy(&policies)
+	err = p.buildPolicy(&policies)
 	if err != nil {
 		t.Fatalf("failed to build policy with error %v", err)
 	}
@@ -370,51 +355,6 @@ volumePolicies:
 			},
 			skip: false,
 		},
-		{
-			name: "match volume by types",
-			yamlData: `version: v1
-volumePolicies:
-- conditions:
-    capacity: "0,100Gi"
-    volumeTypes:
-      - local
-      - hostPath
-  action:
-    type: skip`,
-			vol: &v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{
-					Capacity: v1.ResourceList{
-						v1.ResourceStorage: resource.MustParse("1Gi"),
-					},
-					PersistentVolumeSource: v1.PersistentVolumeSource{
-						HostPath: &v1.HostPathVolumeSource{Path: "/mnt/data"},
-					},
-				},
-			},
-			skip: true,
-		},
-		{
-			name: "dismatch volume by types",
-			yamlData: `version: v1
-volumePolicies:
-- conditions:
-    capacity: "0,100Gi"
-    volumeTypes:
-      - local
-  action:
-    type: skip`,
-			vol: &v1.PersistentVolume{
-				Spec: v1.PersistentVolumeSpec{
-					Capacity: v1.ResourceList{
-						v1.ResourceStorage: resource.MustParse("1Gi"),
-					},
-					PersistentVolumeSource: v1.PersistentVolumeSource{
-						HostPath: &v1.HostPathVolumeSource{Path: "/mnt/data"},
-					},
-				},
-			},
-			skip: false,
-		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -424,7 +364,7 @@ volumePolicies:
 			}
 			assert.Nil(t, err)
 			policies := &Policies{}
-			err = policies.BuildPolicy(resPolicies)
+			err = policies.buildPolicy(resPolicies)
 			assert.Nil(t, err)
 			action, err := policies.GetMatchAction(tc.vol)
 			assert.Nil(t, err)

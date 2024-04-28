@@ -1,18 +1,3 @@
-/*
-Copyright The Velero Contributors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package resourcepolicies
 
 import (
@@ -27,13 +12,8 @@ type VolumeActionType string
 
 const (
 	// currently only support configmap type of resource config
-	ConfigmapRefType string = "configmap"
-	// skip action implies the volume would be skipped from the backup operation
-	Skip VolumeActionType = "skip"
-	// fs-backup action implies that the volume would be backed up via file system copy method using the uploader(kopia/restic) configured by the user
-	FSBackup VolumeActionType = "fs-backup"
-	// snapshot action can have 3 different meaning based on velero configuration and backup spec - cloud provider based snapshots, local csi snapshots and datamover snapshots
-	Snapshot VolumeActionType = "snapshot"
+	ConfigmapRefType string           = "configmap"
+	Skip             VolumeActionType = "skip"
 )
 
 // Action defined as one action for a specific way of backup
@@ -45,16 +25,16 @@ type Action struct {
 }
 
 // volumePolicy defined policy to conditions to match Volumes and related action to handle matched Volumes
-type VolumePolicy struct {
+type volumePolicy struct {
 	// Conditions defined list of conditions to match Volumes
 	Conditions map[string]interface{} `yaml:"conditions"`
 	Action     Action                 `yaml:"action"`
 }
 
 // resourcePolicies currently defined slice of volume policies to handle backup
-type ResourcePolicies struct {
+type resourcePolicies struct {
 	Version        string         `yaml:"version"`
-	VolumePolicies []VolumePolicy `yaml:"volumePolicies"`
+	VolumePolicies []volumePolicy `yaml:"volumePolicies"`
 	// we may support other resource policies in the future, and they could be added separately
 	// OtherResourcePolicies []OtherResourcePolicy
 }
@@ -65,16 +45,16 @@ type Policies struct {
 	// OtherPolicies
 }
 
-func unmarshalResourcePolicies(yamlData *string) (*ResourcePolicies, error) {
-	resPolicies := &ResourcePolicies{}
-	err := decodeStruct(strings.NewReader(*yamlData), resPolicies)
-	if err != nil {
+func unmarshalResourcePolicies(yamlData *string) (*resourcePolicies, error) {
+	resPolicies := &resourcePolicies{}
+	if err := decodeStruct(strings.NewReader(*yamlData), resPolicies); err != nil {
 		return nil, fmt.Errorf("failed to decode yaml data into resource policies  %v", err)
+	} else {
+		return resPolicies, nil
 	}
-	return resPolicies, nil
 }
 
-func (p *Policies) BuildPolicy(resPolicies *ResourcePolicies) error {
+func (policies *Policies) buildPolicy(resPolicies *resourcePolicies) error {
 	for _, vp := range resPolicies.VolumePolicies {
 		con, err := unmarshalVolConditions(vp.Conditions)
 		if err != nil {
@@ -84,19 +64,18 @@ func (p *Policies) BuildPolicy(resPolicies *ResourcePolicies) error {
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		var volP volPolicy
-		volP.action = vp.Action
-		volP.conditions = append(volP.conditions, &capacityCondition{capacity: *volCap})
-		volP.conditions = append(volP.conditions, &storageClassCondition{storageClass: con.StorageClass})
-		volP.conditions = append(volP.conditions, &nfsCondition{nfs: con.NFS})
-		volP.conditions = append(volP.conditions, &csiCondition{csi: con.CSI})
-		volP.conditions = append(volP.conditions, &volumeTypeCondition{volumeTypes: con.VolumeTypes})
-		p.volumePolicies = append(p.volumePolicies, volP)
+		var p volPolicy
+		p.action = vp.Action
+		p.conditions = append(p.conditions, &capacityCondition{capacity: *volCap})
+		p.conditions = append(p.conditions, &storageClassCondition{storageClass: con.StorageClass})
+		p.conditions = append(p.conditions, &nfsCondition{nfs: con.NFS})
+		p.conditions = append(p.conditions, &csiCondition{csi: con.CSI})
+		policies.volumePolicies = append(policies.volumePolicies, p)
 	}
 
 	// Other resource policies
 
-	p.version = resPolicies.Version
+	policies.version = resPolicies.Version
 	return nil
 }
 
@@ -153,7 +132,7 @@ func GetResourcePoliciesFromConfig(cm *v1.ConfigMap) (*Policies, error) {
 		return nil, fmt.Errorf("could not parse config from nil configmap")
 	}
 	if len(cm.Data) != 1 {
-		return nil, fmt.Errorf("illegal resource policies %s/%s configmap", cm.Namespace, cm.Name)
+		return nil, fmt.Errorf("illegal resource policies %s/%s configmap", cm.Name, cm.Namespace)
 	}
 
 	var yamlData string
@@ -167,7 +146,7 @@ func GetResourcePoliciesFromConfig(cm *v1.ConfigMap) (*Policies, error) {
 	}
 
 	policies := &Policies{}
-	if err := policies.BuildPolicy(resPolicies); err != nil {
+	if err := policies.buildPolicy(resPolicies); err != nil {
 		return nil, errors.WithStack(err)
 	}
 

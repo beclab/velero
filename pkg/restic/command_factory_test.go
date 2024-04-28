@@ -89,6 +89,7 @@ func TestGetSnapshotCommand(t *testing.T) {
 
 	assert.Equal(t, expectedFlags, actualFlags)
 	assert.Equal(t, expectedTags, actualTags)
+
 }
 
 func TestInitCommand(t *testing.T) {

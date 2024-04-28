@@ -78,7 +78,7 @@ type V1CustomResourceDefinitionConditionBuilder struct {
 	object apiextv1.CustomResourceDefinitionCondition
 }
 
-// ForV1CustomResourceDefinitionCondition is the constructor for a V1CustomResourceDefinitionConditionBuilder.
+// ForV1V1CustomResourceDefinitionConditionBuilder is the constructor for a V1CustomResourceDefinitionConditionBuilder.
 func ForV1CustomResourceDefinitionCondition() *V1CustomResourceDefinitionConditionBuilder {
 	return &V1CustomResourceDefinitionConditionBuilder{
 		object: apiextv1.CustomResourceDefinitionCondition{},
@@ -98,8 +98,8 @@ func (c *V1CustomResourceDefinitionConditionBuilder) Status(cs apiextv1.Conditio
 }
 
 // Result returns the built CustomResourceDefinitionCondition.
-func (c *V1CustomResourceDefinitionConditionBuilder) Result() apiextv1.CustomResourceDefinitionCondition {
-	return c.object
+func (b *V1CustomResourceDefinitionConditionBuilder) Result() apiextv1.CustomResourceDefinitionCondition {
+	return b.object
 }
 
 // V1CustomResourceDefinitionVersionBuilder builds CustomResourceDefinitionVersion objects.
@@ -115,26 +115,26 @@ func ForV1CustomResourceDefinitionVersion(name string) *V1CustomResourceDefiniti
 }
 
 // Served sets the Served field on a CustomResourceDefinitionVersion.
-func (c *V1CustomResourceDefinitionVersionBuilder) Served(s bool) *V1CustomResourceDefinitionVersionBuilder {
-	c.object.Served = s
-	return c
+func (b *V1CustomResourceDefinitionVersionBuilder) Served(s bool) *V1CustomResourceDefinitionVersionBuilder {
+	b.object.Served = s
+	return b
 }
 
 // Storage sets the Storage field on a CustomResourceDefinitionVersion.
-func (c *V1CustomResourceDefinitionVersionBuilder) Storage(s bool) *V1CustomResourceDefinitionVersionBuilder {
-	c.object.Storage = s
-	return c
+func (b *V1CustomResourceDefinitionVersionBuilder) Storage(s bool) *V1CustomResourceDefinitionVersionBuilder {
+	b.object.Storage = s
+	return b
 }
 
-func (c *V1CustomResourceDefinitionVersionBuilder) Schema(s *apiextv1.JSONSchemaProps) *V1CustomResourceDefinitionVersionBuilder {
-	if c.object.Schema == nil {
-		c.object.Schema = new(apiextv1.CustomResourceValidation)
+func (b *V1CustomResourceDefinitionVersionBuilder) Schema(s *apiextv1.JSONSchemaProps) *V1CustomResourceDefinitionVersionBuilder {
+	if b.object.Schema == nil {
+		b.object.Schema = new(apiextv1.CustomResourceValidation)
 	}
-	c.object.Schema.OpenAPIV3Schema = s
-	return c
+	b.object.Schema.OpenAPIV3Schema = s
+	return b
 }
 
 // Result returns the built CustomResourceDefinitionVersion.
-func (c *V1CustomResourceDefinitionVersionBuilder) Result() apiextv1.CustomResourceDefinitionVersion {
-	return c.object
+func (b *V1CustomResourceDefinitionVersionBuilder) Result() apiextv1.CustomResourceDefinitionVersion {
+	return b.object
 }

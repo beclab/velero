@@ -30,8 +30,6 @@ metadata:
   namespace: velero
 # Parameters about the scheduled backup. Required.
 spec:
-  # Paused specifies whether the schedule is paused or not
-  paused: false
   # Schedule is a Cron expression defining when to run the Backup
   schedule: 0 7 * * *
   # Specifies whether to use OwnerReferences on backups created by this Schedule. 
@@ -43,11 +41,6 @@ spec:
     # CSI VolumeSnapshot status turns to ReadyToUse during creation, before
     # returning error as timeout. The default value is 10 minute.
     csiSnapshotTimeout: 10m
-    # resourcePolicy specifies the referenced resource policies that backup should follow
-    # optional
-    resourcePolicy:
-      kind: configmap
-      name: resource-policy-configmap
     # Array of namespaces to include in the scheduled backup. If unspecified, all namespaces are included.
     # Optional.
     includedNamespaces:
@@ -101,13 +94,6 @@ spec:
       matchLabels:
         app: velero
         component: server
-    # Individual object when matched with any of the label selector specified in the set are to be included in the backup. Optional.
-    # orLabelSelectors as well as labelSelector cannot co-exist, only one of them can be specified in the backup request
-    orLabelSelectors:
-      - matchLabels:
-          app: velero
-      - matchLabels:
-          app: data-protection
     # Whether to snapshot volumes. Valid values are true, false, and null/unset. If unset, Velero performs snapshots as long as
     # a persistent volume provider is configured for Velero.
     snapshotVolumes: null
@@ -125,14 +111,6 @@ spec:
     defaultVolumesToFsBackup: true
     # The labels you want on backup objects, created from this schedule (instead of copying the labels you have on schedule object itself).
     # When this field is set, the labels from the Schedule resource are not copied to the Backup resource.
-    # Whether snapshot data should be moved. If set, data movement is launched after the snapshot is created.
-    snapshotMoveData: true
-    # The data mover to be used by the backup. If the value is "" or "velero", the built-in data mover will be used.
-    datamover: velero
-    # UploaderConfig specifies the configuration for the uploader
-    uploaderConfig:
-        # ParallelFilesUpload is the number of files parallel uploads to perform when using the uploader.
-        parallelFilesUpload: 10
     metadata:
       labels:
         labelname: somelabelvalue

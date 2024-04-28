@@ -22,27 +22,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
-	"github.com/pkg/errors"
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
 
 	"github.com/fatih/color"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	veleroapishared "github.com/vmware-tanzu/velero/pkg/apis/velero/shared"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/downloadrequest"
+	"github.com/vmware-tanzu/velero/pkg/features"
+	clientset "github.com/vmware-tanzu/velero/pkg/generated/clientset/versioned"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 
-	"github.com/vmware-tanzu/velero/internal/volume"
-	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
+	"github.com/vmware-tanzu/velero/pkg/volume"
 )
 
 // DescribeBackup describes a backup in human-readable format.
@@ -52,7 +50,9 @@ func DescribeBackup(
 	backup *velerov1api.Backup,
 	deleteRequests []velerov1api.DeleteBackupRequest,
 	podVolumeBackups []velerov1api.PodVolumeBackup,
+	volumeSnapshotContents []snapshotv1api.VolumeSnapshotContent,
 	details bool,
+	veleroClient clientset.Interface,
 	insecureSkipTLSVerify bool,
 	caCertFile string,
 ) string {
@@ -89,11 +89,6 @@ func DescribeBackup(
 			DescribeResourcePolicies(d, backup.Spec.ResourcePolicy)
 		}
 
-		if backup.Spec.UploaderConfig != nil && backup.Spec.UploaderConfig.ParallelFilesUpload > 0 {
-			d.Println()
-			DescribeUploaderConfigForBackup(d, backup.Spec)
-		}
-
 		status := backup.Status
 		if len(status.ValidationErrors) > 0 {
 			d.Println()
@@ -110,26 +105,30 @@ func DescribeBackup(
 		DescribeBackupSpec(d, backup.Spec)
 
 		d.Println()
-		DescribeBackupStatus(ctx, kbClient, d, backup, details, insecureSkipTLSVerify, caCertFile, podVolumeBackups)
+		DescribeBackupStatus(ctx, kbClient, d, backup, details, veleroClient, insecureSkipTLSVerify, caCertFile)
 
 		if len(deleteRequests) > 0 {
 			d.Println()
 			DescribeDeleteBackupRequests(d, deleteRequests)
 		}
+
+		if features.IsEnabled(velerov1api.CSIFeatureFlag) {
+			d.Println()
+			DescribeCSIVolumeSnapshots(d, details, volumeSnapshotContents)
+		}
+
+		if len(podVolumeBackups) > 0 {
+			d.Println()
+			DescribePodVolumeBackups(d, podVolumeBackups, details)
+		}
 	})
 }
 
-// DescribeResourcePolicies describes resource policies in human-readable format
+// DescribeResourcePolicies describes resource policiesin human-readable format
 func DescribeResourcePolicies(d *Describer, resPolicies *v1.TypedLocalObjectReference) {
 	d.Printf("Resource policies:\n")
 	d.Printf("\tType:\t%s\n", resPolicies.Kind)
 	d.Printf("\tName:\t%s\n", resPolicies.Name)
-}
-
-// DescribeUploaderConfigForBackup describes uploader config in human-readable format
-func DescribeUploaderConfigForBackup(d *Describer, spec velerov1api.BackupSpec) {
-	d.Printf("Uploader config:\n")
-	d.Printf("\tParallel files upload:\t%d\n", spec.UploaderConfig.ParallelFilesUpload)
 }
 
 // DescribeBackupSpec describes a backup spec in human-readable format.
@@ -202,29 +201,10 @@ func DescribeBackupSpec(d *Describer, spec velerov1api.BackupSpec) {
 	d.Printf("Label selector:\t%s\n", s)
 
 	d.Println()
-	if len(spec.OrLabelSelectors) == 0 {
-		s = emptyDisplay
-	} else {
-		orLabelSelectors := []string{}
-		for _, v := range spec.OrLabelSelectors {
-			orLabelSelectors = append(orLabelSelectors, metav1.FormatLabelSelector(v))
-		}
-		s = strings.Join(orLabelSelectors, " or ")
-	}
-	d.Printf("Or label selector:\t%s\n", s)
-
-	d.Println()
 	d.Printf("Storage Location:\t%s\n", spec.StorageLocation)
 
 	d.Println()
 	d.Printf("Velero-Native Snapshot PVs:\t%s\n", BoolPointerString(spec.SnapshotVolumes, "false", "true", "auto"))
-	d.Printf("Snapshot Move Data:\t%s\n", BoolPointerString(spec.SnapshotMoveData, "false", "true", "auto"))
-	if len(spec.DataMover) == 0 {
-		s = defaultDataMover
-	} else {
-		s = spec.DataMover
-	}
-	d.Printf("Data Mover:\t%s\n", s)
 
 	d.Println()
 	d.Printf("TTL:\t%s\n", spec.TTL.Duration)
@@ -243,31 +223,31 @@ func DescribeBackupSpec(d *Describer, spec velerov1api.BackupSpec) {
 			d.Printf("\t\t%s:\n", backupResourceHookSpec.Name)
 			d.Printf("\t\t\tNamespaces:\n")
 			var s string
-			if len(backupResourceHookSpec.IncludedNamespaces) == 0 {
+			if len(spec.IncludedNamespaces) == 0 {
 				s = "*"
 			} else {
-				s = strings.Join(backupResourceHookSpec.IncludedNamespaces, ", ")
+				s = strings.Join(spec.IncludedNamespaces, ", ")
 			}
 			d.Printf("\t\t\t\tIncluded:\t%s\n", s)
-			if len(backupResourceHookSpec.ExcludedNamespaces) == 0 {
+			if len(spec.ExcludedNamespaces) == 0 {
 				s = emptyDisplay
 			} else {
-				s = strings.Join(backupResourceHookSpec.ExcludedNamespaces, ", ")
+				s = strings.Join(spec.ExcludedNamespaces, ", ")
 			}
 			d.Printf("\t\t\t\tExcluded:\t%s\n", s)
 
 			d.Println()
 			d.Printf("\t\t\tResources:\n")
-			if len(backupResourceHookSpec.IncludedResources) == 0 {
+			if len(spec.IncludedResources) == 0 {
 				s = "*"
 			} else {
-				s = strings.Join(backupResourceHookSpec.IncludedResources, ", ")
+				s = strings.Join(spec.IncludedResources, ", ")
 			}
 			d.Printf("\t\t\t\tIncluded:\t%s\n", s)
-			if len(backupResourceHookSpec.ExcludedResources) == 0 {
+			if len(spec.ExcludedResources) == 0 {
 				s = emptyDisplay
 			} else {
-				s = strings.Join(backupResourceHookSpec.ExcludedResources, ", ")
+				s = strings.Join(spec.ExcludedResources, ", ")
 			}
 			d.Printf("\t\t\t\tExcluded:\t%s\n", s)
 
@@ -312,8 +292,7 @@ func DescribeBackupSpec(d *Describer, spec velerov1api.BackupSpec) {
 }
 
 // DescribeBackupStatus describes a backup status in human-readable format.
-func DescribeBackupStatus(ctx context.Context, kbClient kbclient.Client, d *Describer, backup *velerov1api.Backup, details bool,
-	insecureSkipTLSVerify bool, caCertPath string, podVolumeBackups []velerov1api.PodVolumeBackup) {
+func DescribeBackupStatus(ctx context.Context, kbClient kbclient.Client, d *Describer, backup *velerov1api.Backup, details bool, veleroClient clientset.Interface, insecureSkipTLSVerify bool, caCertPath string) {
 	status := backup.Status
 
 	// Status.Version has been deprecated, use Status.FormatVersion
@@ -358,13 +337,32 @@ func DescribeBackupStatus(ctx context.Context, kbClient kbclient.Client, d *Desc
 		d.Println()
 	}
 
-	describeBackupVolumes(ctx, kbClient, d, backup, details, insecureSkipTLSVerify, caCertPath, podVolumeBackups)
+	if status.VolumeSnapshotsAttempted > 0 {
+		if !details {
+			d.Printf("Velero-Native Snapshots:\t%d of %d snapshots completed successfully (specify --details for more information)\n", status.VolumeSnapshotsCompleted, status.VolumeSnapshotsAttempted)
+			return
+		}
 
-	if status.HookStatus != nil {
-		d.Println()
-		d.Printf("HooksAttempted:\t%d\n", status.HookStatus.HooksAttempted)
-		d.Printf("HooksFailed:\t%d\n", status.HookStatus.HooksFailed)
+		buf := new(bytes.Buffer)
+		if err := downloadrequest.Stream(ctx, kbClient, backup.Namespace, backup.Name, velerov1api.DownloadTargetKindBackupVolumeSnapshots, buf, downloadRequestTimeout, insecureSkipTLSVerify, caCertPath); err != nil {
+			d.Printf("Velero-Native Snapshots:\t<error getting snapshot info: %v>\n", err)
+			return
+		}
+
+		var snapshots []*volume.Snapshot
+		if err := json.NewDecoder(buf).Decode(&snapshots); err != nil {
+			d.Printf("Velero-Native Snapshots:\t<error reading snapshot info: %v>\n", err)
+			return
+		}
+
+		d.Printf("Velero-Native Snapshots:\n")
+		for _, snap := range snapshots {
+			describeSnapshot(d, snap.Spec.PersistentVolumeName, snap.Status.ProviderSnapshotID, snap.Spec.VolumeType, snap.Spec.VolumeAZ, snap.Spec.VolumeIOPS)
+		}
+		return
 	}
+
+	d.Printf("Velero-Native Snapshots: <none included>\n")
 }
 
 func describeBackupItemOperations(ctx context.Context, kbClient kbclient.Client, d *Describer, backup *velerov1api.Backup, details bool, insecureSkipTLSVerify bool, caCertPath string) {
@@ -430,260 +428,16 @@ func describeBackupResourceList(ctx context.Context, kbClient kbclient.Client, d
 	}
 }
 
-func describeBackupVolumes(ctx context.Context, kbClient kbclient.Client, d *Describer, backup *velerov1api.Backup, details bool,
-	insecureSkipTLSVerify bool, caCertPath string, podVolumeBackupCRs []velerov1api.PodVolumeBackup) {
-	if boolptr.IsSetToFalse(backup.Spec.SnapshotVolumes) {
-		d.Println("Backup Volumes: <none included>")
-		return
+func describeSnapshot(d *Describer, pvName, snapshotID, volumeType, volumeAZ string, iops *int64) {
+	d.Printf("\t%s:\n", pvName)
+	d.Printf("\t\tSnapshot ID:\t%s\n", snapshotID)
+	d.Printf("\t\tType:\t%s\n", volumeType)
+	d.Printf("\t\tAvailability Zone:\t%s\n", volumeAZ)
+	iopsString := "<N/A>"
+	if iops != nil {
+		iopsString = fmt.Sprintf("%d", *iops)
 	}
-
-	d.Println("Backup Volumes:")
-
-	nativeSnapshots := []*volume.BackupVolumeInfo{}
-	csiSnapshots := []*volume.BackupVolumeInfo{}
-	legacyInfoSource := false
-
-	buf := new(bytes.Buffer)
-	err := downloadrequest.Stream(ctx, kbClient, backup.Namespace, backup.Name, velerov1api.DownloadTargetKindBackupVolumeInfos, buf, downloadRequestTimeout, insecureSkipTLSVerify, caCertPath)
-	if err == downloadrequest.ErrNotFound {
-		nativeSnapshots, err = retrieveNativeSnapshotLegacy(ctx, kbClient, backup, insecureSkipTLSVerify, caCertPath)
-		if err != nil {
-			d.Printf("\t<error concluding native snapshot info: %v>\n", err)
-			return
-		}
-
-		csiSnapshots, err = retrieveCSISnapshotLegacy(ctx, kbClient, backup, insecureSkipTLSVerify, caCertPath)
-		if err != nil {
-			d.Printf("\t<error concluding CSI snapshot info: %v>\n", err)
-			return
-		}
-
-		legacyInfoSource = true
-	} else if err != nil {
-		d.Printf("\t<error getting backup volume info: %v>\n", err)
-		return
-	} else {
-		var volumeInfos []volume.BackupVolumeInfo
-		if err := json.NewDecoder(buf).Decode(&volumeInfos); err != nil {
-			d.Printf("\t<error reading backup volume info: %v>\n", err)
-			return
-		}
-
-		for i := range volumeInfos {
-			switch volumeInfos[i].BackupMethod {
-			case volume.NativeSnapshot:
-				nativeSnapshots = append(nativeSnapshots, &volumeInfos[i])
-			case volume.CSISnapshot:
-				csiSnapshots = append(csiSnapshots, &volumeInfos[i])
-			}
-		}
-	}
-
-	describeNativeSnapshots(d, details, nativeSnapshots)
-	d.Println()
-
-	describeCSISnapshots(d, details, csiSnapshots, legacyInfoSource)
-	d.Println()
-
-	describePodVolumeBackups(d, details, podVolumeBackupCRs)
-}
-
-func retrieveNativeSnapshotLegacy(ctx context.Context, kbClient kbclient.Client, backup *velerov1api.Backup, insecureSkipTLSVerify bool, caCertPath string) ([]*volume.BackupVolumeInfo, error) {
-	status := backup.Status
-	nativeSnapshots := []*volume.BackupVolumeInfo{}
-
-	if status.VolumeSnapshotsAttempted == 0 {
-		return nativeSnapshots, nil
-	}
-
-	buf := new(bytes.Buffer)
-	if err := downloadrequest.Stream(ctx, kbClient, backup.Namespace, backup.Name, velerov1api.DownloadTargetKindBackupVolumeSnapshots, buf, downloadRequestTimeout, insecureSkipTLSVerify, caCertPath); err != nil {
-		return nativeSnapshots, errors.Wrapf(err, "error to download native snapshot info")
-	}
-
-	var snapshots []*volume.Snapshot
-	if err := json.NewDecoder(buf).Decode(&snapshots); err != nil {
-		return nativeSnapshots, errors.Wrapf(err, "error to decode native snapshot info")
-	}
-
-	for _, snap := range snapshots {
-		volumeInfo := volume.BackupVolumeInfo{
-			PVName: snap.Spec.PersistentVolumeName,
-			NativeSnapshotInfo: &volume.NativeSnapshotInfo{
-				SnapshotHandle: snap.Status.ProviderSnapshotID,
-				VolumeType:     snap.Spec.VolumeType,
-				VolumeAZ:       snap.Spec.VolumeAZ,
-			},
-		}
-
-		if snap.Spec.VolumeIOPS != nil {
-			volumeInfo.NativeSnapshotInfo.IOPS = strconv.FormatInt(*snap.Spec.VolumeIOPS, 10)
-		}
-
-		nativeSnapshots = append(nativeSnapshots, &volumeInfo)
-	}
-
-	return nativeSnapshots, nil
-}
-
-func retrieveCSISnapshotLegacy(ctx context.Context, kbClient kbclient.Client, backup *velerov1api.Backup, insecureSkipTLSVerify bool, caCertPath string) ([]*volume.BackupVolumeInfo, error) {
-	status := backup.Status
-	csiSnapshots := []*volume.BackupVolumeInfo{}
-
-	if status.CSIVolumeSnapshotsAttempted == 0 {
-		return csiSnapshots, nil
-	}
-
-	vsBuf := new(bytes.Buffer)
-	err := downloadrequest.Stream(ctx, kbClient, backup.Namespace, backup.Name, velerov1api.DownloadTargetKindCSIBackupVolumeSnapshots, vsBuf, downloadRequestTimeout, insecureSkipTLSVerify, caCertPath)
-	if err != nil {
-		return csiSnapshots, errors.Wrapf(err, "error to download vs list")
-	}
-
-	var vsList []snapshotv1api.VolumeSnapshot
-	if err := json.NewDecoder(vsBuf).Decode(&vsList); err != nil {
-		return csiSnapshots, errors.Wrapf(err, "error to decode vs list")
-	}
-
-	vscBuf := new(bytes.Buffer)
-	err = downloadrequest.Stream(ctx, kbClient, backup.Namespace, backup.Name, velerov1api.DownloadTargetKindCSIBackupVolumeSnapshotContents, vscBuf, downloadRequestTimeout, insecureSkipTLSVerify, caCertPath)
-	if err != nil {
-		return csiSnapshots, errors.Wrapf(err, "error to download vsc list")
-	}
-
-	var vscList []snapshotv1api.VolumeSnapshotContent
-	if err := json.NewDecoder(vscBuf).Decode(&vscList); err != nil {
-		return csiSnapshots, errors.Wrapf(err, "error to decode vsc list")
-	}
-
-	for _, vsc := range vscList {
-		volInfo := volume.BackupVolumeInfo{
-			PreserveLocalSnapshot: true,
-			CSISnapshotInfo: &volume.CSISnapshotInfo{
-				VSCName: vsc.Name,
-				Driver:  vsc.Spec.Driver,
-			},
-		}
-
-		if vsc.Status != nil && vsc.Status.SnapshotHandle != nil {
-			volInfo.CSISnapshotInfo.SnapshotHandle = *vsc.Status.SnapshotHandle
-		}
-
-		if vsc.Status != nil && vsc.Status.RestoreSize != nil {
-			volInfo.CSISnapshotInfo.Size = *vsc.Status.RestoreSize
-		}
-
-		for _, vs := range vsList {
-			if vs.Status.BoundVolumeSnapshotContentName == nil {
-				continue
-			}
-
-			if vs.Spec.Source.PersistentVolumeClaimName == nil {
-				continue
-			}
-
-			if *vs.Status.BoundVolumeSnapshotContentName == vsc.Name {
-				volInfo.PVCName = *vs.Spec.Source.PersistentVolumeClaimName
-				volInfo.PVCNamespace = vs.Namespace
-			}
-		}
-
-		if volInfo.PVCName == "" {
-			volInfo.PVCName = "<PVC name not found>"
-		}
-
-		csiSnapshots = append(csiSnapshots, &volInfo)
-	}
-
-	return csiSnapshots, nil
-}
-
-func describeNativeSnapshots(d *Describer, details bool, infos []*volume.BackupVolumeInfo) {
-	if len(infos) == 0 {
-		d.Printf("\tVelero-Native Snapshots: <none included>\n")
-		return
-	}
-
-	d.Println("\tVelero-Native Snapshots:")
-	for _, info := range infos {
-		describNativeSnapshot(d, details, info)
-	}
-}
-
-func describNativeSnapshot(d *Describer, details bool, info *volume.BackupVolumeInfo) {
-	if details {
-		d.Printf("\t\t%s:\n", info.PVName)
-		d.Printf("\t\t\tSnapshot ID:\t%s\n", info.NativeSnapshotInfo.SnapshotHandle)
-		d.Printf("\t\t\tType:\t%s\n", info.NativeSnapshotInfo.VolumeType)
-		d.Printf("\t\t\tAvailability Zone:\t%s\n", info.NativeSnapshotInfo.VolumeAZ)
-		d.Printf("\t\t\tIOPS:\t%s\n", info.NativeSnapshotInfo.IOPS)
-	} else {
-		d.Printf("\t\t%s: specify --details for more information\n", info.PVName)
-	}
-}
-
-func describeCSISnapshots(d *Describer, details bool, infos []*volume.BackupVolumeInfo, legacyInfoSource bool) {
-	if len(infos) == 0 {
-		if legacyInfoSource {
-			d.Printf("\tCSI Snapshots: <none included or not detectable>\n")
-		} else {
-			d.Printf("\tCSI Snapshots: <none included>\n")
-		}
-		return
-	}
-
-	d.Println("\tCSI Snapshots:")
-	for _, info := range infos {
-		describeCSISnapshot(d, details, info)
-	}
-}
-
-func describeCSISnapshot(d *Describer, details bool, info *volume.BackupVolumeInfo) {
-	d.Printf("\t\t%s:\n", fmt.Sprintf("%s/%s", info.PVCNamespace, info.PVCName))
-
-	describeLocalSnapshot(d, details, info)
-	describeDataMovement(d, details, info)
-}
-
-func describeLocalSnapshot(d *Describer, details bool, info *volume.BackupVolumeInfo) {
-	if !info.PreserveLocalSnapshot {
-		return
-	}
-
-	if details {
-		d.Printf("\t\t\tSnapshot:\n")
-		if !info.SnapshotDataMoved && info.CSISnapshotInfo.OperationID != "" {
-			d.Printf("\t\t\t\tOperation ID: %s\n", info.CSISnapshotInfo.OperationID)
-		}
-
-		d.Printf("\t\t\t\tSnapshot Content Name: %s\n", info.CSISnapshotInfo.VSCName)
-		d.Printf("\t\t\t\tStorage Snapshot ID: %s\n", info.CSISnapshotInfo.SnapshotHandle)
-		d.Printf("\t\t\t\tSnapshot Size (bytes): %d\n", info.CSISnapshotInfo.Size)
-		d.Printf("\t\t\t\tCSI Driver: %s\n", info.CSISnapshotInfo.Driver)
-	} else {
-		d.Printf("\t\t\tSnapshot: %s\n", "included, specify --details for more information")
-	}
-}
-
-func describeDataMovement(d *Describer, details bool, info *volume.BackupVolumeInfo) {
-	if !info.SnapshotDataMoved {
-		return
-	}
-
-	if details {
-		d.Printf("\t\t\tData Movement:\n")
-		d.Printf("\t\t\t\tOperation ID: %s\n", info.SnapshotDataMovementInfo.OperationID)
-
-		dataMover := "velero"
-		if info.SnapshotDataMovementInfo.DataMover != "" {
-			dataMover = info.SnapshotDataMovementInfo.DataMover
-		}
-		d.Printf("\t\t\t\tData Mover: %s\n", dataMover)
-		d.Printf("\t\t\t\tUploader Type: %s\n", info.SnapshotDataMovementInfo.UploaderType)
-		d.Printf("\t\t\t\tMoved data Size (bytes): %d\n", info.SnapshotDataMovementInfo.Size)
-	} else {
-		d.Printf("\t\t\tData Movement: %s\n", "included, specify --details for more information")
-	}
+	d.Printf("\t\tIOPS:\t%s\n", iopsString)
 }
 
 func describeBackupItemOperation(d *Describer, operation *itemoperation.BackupOperation) {
@@ -756,26 +510,25 @@ func failedDeletionCount(requests []velerov1api.DeleteBackupRequest) int {
 	return count
 }
 
-// describePodVolumeBackups describes pod volume backups in human-readable format.
-func describePodVolumeBackups(d *Describer, details bool, podVolumeBackups []velerov1api.PodVolumeBackup) {
+// DescribePodVolumeBackups describes pod volume backups in human-readable format.
+func DescribePodVolumeBackups(d *Describer, backups []velerov1api.PodVolumeBackup, details bool) {
 	// Get the type of pod volume uploader. Since the uploader only comes from a single source, we can
 	// take the uploader type from the first element of the array.
 	var uploaderType string
-	if len(podVolumeBackups) > 0 {
-		uploaderType = podVolumeBackups[0].Spec.UploaderType
+	if len(backups) > 0 {
+		uploaderType = backups[0].Spec.UploaderType
 	} else {
-		d.Printf("\tPod Volume Backups: <none included>\n")
 		return
 	}
 
 	if details {
-		d.Printf("\tPod Volume Backups - %s:\n", uploaderType)
+		d.Printf("%s Backups:\n", uploaderType)
 	} else {
-		d.Printf("\tPod Volume Backups - %s (specify --details for more information):\n", uploaderType)
+		d.Printf("%s Backups (specify --details for more information):\n", uploaderType)
 	}
 
 	// separate backups by phase (combining <none> and New into a single group)
-	backupsByPhase := groupByPhase(podVolumeBackups)
+	backupsByPhase := groupByPhase(backups)
 
 	// go through phases in a specific order
 	for _, phase := range []string{
@@ -790,7 +543,7 @@ func describePodVolumeBackups(d *Describer, details bool, podVolumeBackups []vel
 
 		// if we're not printing details, just report the phase and count
 		if !details {
-			d.Printf("\t\t%s:\t%d\n", phase, len(backupsByPhase[phase]))
+			d.Printf("\t%s:\t%d\n", phase, len(backupsByPhase[phase]))
 			continue
 		}
 
@@ -801,12 +554,12 @@ func describePodVolumeBackups(d *Describer, details bool, podVolumeBackups []vel
 			backupsByPod.Add(backup.Spec.Pod.Namespace, backup.Spec.Pod.Name, backup.Spec.Volume, phase, backup.Status.Progress)
 		}
 
-		d.Printf("\t\t%s:\n", phase)
+		d.Printf("\t%s:\n", phase)
 		for _, backupGroup := range backupsByPod.Sorted() {
 			sort.Strings(backupGroup.volumes)
 
 			// print volumes backed up for this pod
-			d.Printf("\t\t\t%s: %s\n", backupGroup.label, strings.Join(backupGroup.volumes, ", "))
+			d.Printf("\t\t%s: %s\n", backupGroup.label, strings.Join(backupGroup.volumes, ", "))
 		}
 	}
 }
@@ -844,7 +597,7 @@ type volumesByPod struct {
 
 // Add adds a pod volume with the specified pod namespace, name
 // and volume to the appropriate group.
-func (v *volumesByPod) Add(namespace, name, volume, phase string, progress veleroapishared.DataMoveOperationProgress) {
+func (v *volumesByPod) Add(namespace, name, volume, phase string, progress velerov1api.PodVolumeOperationProgress) {
 	if v.volumesByPodMap == nil {
 		v.volumesByPodMap = make(map[string]*podVolumeGroup)
 	}
@@ -877,6 +630,49 @@ func (v *volumesByPod) Sorted() []*podVolumeGroup {
 	})
 
 	return v.volumesByPodSlice
+}
+
+func DescribeCSIVolumeSnapshots(d *Describer, details bool, volumeSnapshotContents []snapshotv1api.VolumeSnapshotContent) {
+	if !features.IsEnabled(velerov1api.CSIFeatureFlag) {
+		return
+	}
+
+	if len(volumeSnapshotContents) == 0 {
+		d.Printf("CSI Volume Snapshots: <none included>\n")
+		return
+	}
+
+	if !details {
+		d.Printf("CSI Volume Snapshots:\t%d included (specify --details for more information)\n", len(volumeSnapshotContents))
+		return
+	}
+
+	d.Printf("CSI Volume Snapshots:\n")
+
+	for _, vsc := range volumeSnapshotContents {
+		DescribeVSC(d, details, vsc)
+	}
+}
+
+func DescribeVSC(d *Describer, details bool, vsc snapshotv1api.VolumeSnapshotContent) {
+	if vsc.Status == nil {
+		d.Printf("Volume Snapshot Content %s cannot be described because its status is nil\n", vsc.Name)
+		return
+	}
+
+	d.Printf("Snapshot Content Name: %s\n", vsc.Name)
+
+	if vsc.Status.SnapshotHandle != nil {
+		d.Printf("\tStorage Snapshot ID: %s\n", *vsc.Status.SnapshotHandle)
+	}
+
+	if vsc.Status.RestoreSize != nil {
+		d.Printf("\tSnapshot Size (bytes): %d\n", *vsc.Status.RestoreSize)
+	}
+
+	if vsc.Status.ReadyToUse != nil {
+		d.Printf("\tReady to use: %t\n", *vsc.Status.ReadyToUse)
+	}
 }
 
 // DescribeBackupResults describes errors and warnings in human-readable format.

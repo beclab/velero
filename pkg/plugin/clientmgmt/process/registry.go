@@ -52,7 +52,7 @@ type registry struct {
 	logger   logrus.FieldLogger
 	logLevel logrus.Level
 
-	processFactory Factory
+	processFactory ProcessFactory
 	fs             filesystem.Interface
 	pluginsByID    map[KindAndName]framework.PluginIdentifier
 	pluginsByKind  map[common.PluginKind][]framework.PluginIdentifier

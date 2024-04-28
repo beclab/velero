@@ -1,5 +1,9 @@
-FROM klakegg/hugo:0.73.0-ext-ubuntu
+FROM ubuntu:20.04
+
+RUN apt update
+RUN apt install -y hugo
 
 WORKDIR /srv/hugo
 
 EXPOSE 1313
+

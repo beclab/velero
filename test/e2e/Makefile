@@ -1,4 +1,4 @@
-# Copyright the Velero contributors.
+# Copyright 2020 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,10 +41,8 @@ help:  ## Display this help
 
 TOOLS_DIR := $(REPO_ROOT)/hack/tools
 BIN_DIR := bin
-# Try to not modify PATH if possible
-GOBIN := $(REPO_ROOT)/.go/bin
 TOOLS_BIN_DIR := $(TOOLS_DIR)/$(BIN_DIR)
-GINKGO := $(GOBIN)/ginkgo
+GINKGO := $(GOPATH)/bin/ginkgo
 KUSTOMIZE := $(TOOLS_BIN_DIR)/kustomize
 OUTPUT_DIR := _output/$(GOOS)/$(GOARCH)/bin
 GINKGO_FOCUS ?=
@@ -53,10 +51,11 @@ SKIP_STR := $(foreach var, $(subst ., ,$(GINKGO_SKIP)),-skip "$(var)")
 FOCUS_STR := $(foreach var, $(subst ., ,$(GINKGO_FOCUS)),-focus "$(var)")
 VELERO_CLI ?=$$(pwd)/../../_output/bin/$(GOOS)/$(GOARCH)/velero
 VELERO_IMAGE ?= velero/velero:main
+VELERO_VERSION ?= $(VERSION)
 PLUGINS ?=
 RESTORE_HELPER_IMAGE ?=
 #Released version only
-UPGRADE_FROM_VELERO_VERSION ?= v1.12.3,v1.13.0
+UPGRADE_FROM_VELERO_VERSION ?= v1.9.6,v1.10.2
 # UPGRADE_FROM_VELERO_CLI can has the same format(a list divided by comma) with UPGRADE_FROM_VELERO_VERSION
 # Upgrade tests will be executed sequently according to the list by UPGRADE_FROM_VELERO_VERSION
 # So although length of UPGRADE_FROM_VELERO_CLI list is not equal with UPGRADE_FROM_VELERO_VERSION
@@ -64,21 +63,16 @@ UPGRADE_FROM_VELERO_VERSION ?= v1.12.3,v1.13.0
 # to the end, nil string will be set if UPGRADE_FROM_VELERO_CLI is shorter than UPGRADE_FROM_VELERO_VERSION
 UPGRADE_FROM_VELERO_CLI ?=
 
-MIGRATE_FROM_VELERO_VERSION ?= v1.13.0,self
+MIGRATE_FROM_VELERO_VERSION ?= v1.10.2,self
 MIGRATE_FROM_VELERO_CLI ?=
 
 VELERO_NAMESPACE ?= velero
 CREDS_FILE ?=
-DEFAULT_CLS_SERVICE_ACCOUNT_NAME ?=
-STANDBY_CLS_SERVICE_ACCOUNT_NAME ?=
 BSL_BUCKET ?=
 BSL_PREFIX ?=
 BSL_CONFIG ?=
 VSL_CONFIG ?=
 CLOUD_PROVIDER ?=
-STANDBY_CLUSTER_CLOUD_PROVIDER ?=
-STANDBY_CLUSTER_PLUGINS ?=
-STANDBY_CLUSTER_OBJECT_STORE_PROVIDER ?=
 OBJECT_STORE_PROVIDER ?=
 INSTALL_VELERO ?= true
 REGISTRY_CREDENTIAL_FILE ?=
@@ -95,7 +89,6 @@ ADDITIONAL_BSL_CONFIG ?=
 
 FEATURES ?=
 DEBUG_E2E_TEST ?= false
-DEBUG_VELERO_POD_RESTART ?= false
 VELERO_SERVER_DEBUG_MODE ?= false
 
 # Parameters to run migration tests along with all other E2E tests, and both of them should
@@ -106,22 +99,10 @@ STANDBY_CLUSTER ?=
 
 UPLOADER_TYPE ?=
 
-SNAPSHOT_MOVE_DATA ?= false
-DATA_MOVER_PLUGIN ?=
-DISABLE_INFORMER_CACHE ?= false
 
-DEFAULT_CLUSTER_NAME ?=
-STANDBY_CLUSTER_NAME ?=
-EKS_POLICY_ARN ?=
-
-
-# Make sure ginkgo is in $GOBIN
 .PHONY:ginkgo
-ginkgo: ${GOBIN}/ginkgo
-
-# This target does not run if ginkgo is already in $GOBIN
-${GOBIN}/ginkgo:
-	GOBIN=${GOBIN} go install github.com/onsi/ginkgo/ginkgo@v1.16.5
+ginkgo: # Make sure ginkgo is in $GOPATH/bin
+	go install github.com/onsi/ginkgo/ginkgo@v1.16.5
 
 .PHONY: run
 run: ginkgo
@@ -130,11 +111,11 @@ run: ginkgo
 		@[ "${BSL_BUCKET}" ] && echo "Using bucket ${BSL_BUCKET} to store backups from E2E tests" || \
 			(echo "Bucket to store the backups from E2E tests is required, please re-run with BSL_BUCKET=<BucketName>"; exit 1 )
 		@[ "${CLOUD_PROVIDER}" ] && echo "Using cloud provider ${CLOUD_PROVIDER}" || \
-			(echo "Cloud provider for target cloud/plugin provider is required, please rerun with CLOUD_PROVIDER=<aws,azure,kind,vsphere>"; exit 1)
+			(echo "Cloud provider for target cloud/plug-in provider is required, please rerun with CLOUD_PROVIDER=<aws,azure,kind,vsphere>"; exit 1)
 	@$(GINKGO) -v $(FOCUS_STR) $(SKIP_STR) . -- -velerocli=$(VELERO_CLI) \
 		-velero-image=$(VELERO_IMAGE) \
 		-plugins=$(PLUGINS) \
-		-velero-version=$(VERSION) \
+		-velero-version=$(VELERO_VERSION) \
 		-restore-helper-image=$(RESTORE_HELPER_IMAGE) \
 		-upgrade-from-velero-cli=$(UPGRADE_FROM_VELERO_CLI) \
 		-upgrade-from-velero-version=$(UPGRADE_FROM_VELERO_VERSION) \
@@ -160,21 +141,9 @@ run: ginkgo
 		-kibishii-directory=$(KIBISHII_DIRECTORY) \
 		-debug-e2e-test=$(DEBUG_E2E_TEST) \
 		-velero-server-debug-mode=$(VELERO_SERVER_DEBUG_MODE) \
-		-default-cluster-context=$(DEFAULT_CLUSTER) \
-		-standby-cluster-context=$(STANDBY_CLUSTER) \
-		-uploader-type=$(UPLOADER_TYPE) \
-		-snapshot-move-data=$(SNAPSHOT_MOVE_DATA) \
-		-data-mover-plugin=$(DATA_MOVER_PLUGIN) \
-		-standby-cluster-cloud-provider=$(STANDBY_CLUSTER_CLOUD_PROVIDER) \
-		-standby-cluster-plugins=$(STANDBY_CLUSTER_PLUGINS) \
-		-standby-cluster-object-store-provider=$(STANDBY_CLUSTER_OBJECT_STORE_PROVIDER) \
-		-debug-velero-pod-restart=$(DEBUG_VELERO_POD_RESTART) \
-		-disable-informer-cache=$(DISABLE_INFORMER_CACHE) \
-		-default-cluster-name=$(DEFAULT_CLUSTER_NAME) \
-		-standby-cluster-name=$(STANDBY_CLUSTER_NAME) \
-		-eks-policy-arn=$(EKS_POLICY_ARN) \
-		-default-cls-service-account-name=$(DEFAULT_CLS_SERVICE_ACCOUNT_NAME) \
-		-standby-cls-service-account-name=$(STANDBY_CLS_SERVICE_ACCOUNT_NAME)
+		-default-cluster=$(DEFAULT_CLUSTER) \
+		-standby-cluster=$(STANDBY_CLUSTER) \
+		-uploader-type=$(UPLOADER_TYPE)
 
 build: ginkgo
 	mkdir -p $(OUTPUT_DIR)

@@ -27,7 +27,6 @@ import (
 
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/content"
-	"github.com/kopia/kopia/repo/content/index"
 	"github.com/kopia/kopia/repo/manifest"
 	"github.com/kopia/kopia/repo/object"
 )
@@ -56,7 +55,7 @@ func NewShimRepo(repo udmrepo.BackupRepo) repo.RepositoryWriter {
 
 // OpenObject open specific object
 func (sr *shimRepository) OpenObject(ctx context.Context, id object.ID) (object.Reader, error) {
-	reader, err := sr.udmRepo.OpenObject(ctx, udmrepo.ID(id.String()))
+	reader, err := sr.udmRepo.OpenObject(ctx, udmrepo.ID(id))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open object with id %v", id)
 	}
@@ -71,7 +70,7 @@ func (sr *shimRepository) OpenObject(ctx context.Context, id object.ID) (object.
 
 // VerifyObject not supported
 func (sr *shimRepository) VerifyObject(ctx context.Context, id object.ID) ([]content.ID, error) {
-	return nil, errors.New("VerifyObject is not supported")
+	return nil, errors.New("not supported")
 }
 
 // Get one or more manifest data that match the specific manifest id
@@ -88,14 +87,14 @@ func (sr *shimRepository) GetManifest(ctx context.Context, id manifest.ID, paylo
 
 // Get one or more manifest data that match the given labels
 func (sr *shimRepository) FindManifests(ctx context.Context, labels map[string]string) ([]*manifest.EntryMetadata, error) {
-	metadata, err := sr.udmRepo.FindManifests(ctx, udmrepo.ManifestFilter{Labels: labels})
-	if err != nil {
+	if metadata, err := sr.udmRepo.FindManifests(ctx, udmrepo.ManifestFilter{Labels: labels}); err != nil {
 		return nil, errors.Wrapf(err, "failed to get manifests with labels %v", labels)
+	} else {
+		return GetKopiaManifestEntries(metadata), nil
 	}
-	return GetKopiaManifestEntries(metadata), nil
 }
 
-// GetKopiaManifestEntry get metadata from specific ManifestEntryMetadata
+// GetKopiaManifestEntries get metadata from specific ManifestEntryMetadata
 func GetKopiaManifestEntry(uMani *udmrepo.ManifestEntryMetadata) *manifest.EntryMetadata {
 	var ret manifest.EntryMetadata
 
@@ -136,12 +135,12 @@ func (sr *shimRepository) ClientOptions() repo.ClientOptions {
 
 // Refresh not supported
 func (sr *shimRepository) Refresh(ctx context.Context) error {
-	return errors.New("Refresh is not supported")
+	return errors.New("not supported")
 }
 
 // ContentInfo not supported
 func (sr *shimRepository) ContentInfo(ctx context.Context, contentID content.ID) (content.Info, error) {
-	return index.Info{}, errors.New("ContentInfo is not supported")
+	return nil, errors.New("not supported")
 }
 
 // PrefetchContents is not supported by unified repo
@@ -151,7 +150,7 @@ func (sr *shimRepository) PrefetchContents(ctx context.Context, contentIDs []con
 
 // PrefetchObjects is not supported by unified repo
 func (sr *shimRepository) PrefetchObjects(ctx context.Context, objectIDs []object.ID, hint string) ([]content.ID, error) {
-	return nil, errors.New("PrefetchObjects is not supported")
+	return nil, errors.New("not supported")
 }
 
 // UpdateDescription is not supported by unified repo
@@ -160,7 +159,7 @@ func (sr *shimRepository) UpdateDescription(d string) {
 
 // NewWriter is not supported by unified repo
 func (sr *shimRepository) NewWriter(ctx context.Context, option repo.WriteSessionOptions) (context.Context, repo.RepositoryWriter, error) {
-	return nil, nil, errors.New("NewWriter is not supported")
+	return nil, nil, errors.New("not supported")
 }
 
 // Close will close unified repo
@@ -175,7 +174,6 @@ func (sr *shimRepository) NewObjectWriter(ctx context.Context, option object.Wri
 	opt.Prefix = udmrepo.ID(option.Prefix)
 	opt.FullPath = ""
 	opt.AccessMode = udmrepo.ObjectDataAccessModeFile
-	opt.AsyncWrites = option.AsyncWrites
 
 	if strings.HasPrefix(option.Description, "DIR:") {
 		opt.DataType = udmrepo.ObjectDataTypeMetadata
@@ -210,52 +208,9 @@ func (sr *shimRepository) DeleteManifest(ctx context.Context, id manifest.ID) er
 	return sr.udmRepo.DeleteManifest(ctx, udmrepo.ID(id))
 }
 
-func (sr *shimRepository) ReplaceManifests(ctx context.Context, labels map[string]string, payload interface{}) (manifest.ID, error) {
-	const minReplaceManifestTimeDelta = 100 * time.Millisecond
-
-	md, err := sr.FindManifests(ctx, labels)
-	if err != nil {
-		return "", errors.Wrap(err, "unable to load manifests")
-	}
-
-	for _, em := range md {
-		age := sr.Time().Sub(em.ModTime)
-		if age < minReplaceManifestTimeDelta {
-			time.Sleep(minReplaceManifestTimeDelta)
-		}
-
-		if err := sr.DeleteManifest(ctx, em.ID); err != nil {
-			return "", errors.Wrapf(err, "unable to delete previous manifest %v", em.ID)
-		}
-	}
-
-	return sr.PutManifest(ctx, labels, payload)
-}
-
 // Flush all the unifited repository data
 func (sr *shimRepository) Flush(ctx context.Context) error {
 	return sr.udmRepo.Flush(ctx)
-}
-
-func (sr *shimRepository) ConcatenateObjects(ctx context.Context, objectIDs []object.ID) (object.ID, error) {
-	if len(objectIDs) == 0 {
-		return object.EmptyID, errors.New("object list is empty")
-	}
-
-	ids := []udmrepo.ID{}
-	for _, id := range objectIDs {
-		ids = append(ids, udmrepo.ID(id.String()))
-	}
-
-	id, err := sr.udmRepo.ConcatenateObjects(ctx, ids)
-	if err != nil {
-		return object.EmptyID, err
-	}
-
-	return object.ParseID(string(id))
-}
-
-func (sr *shimRepository) OnSuccessfulFlush(callback repo.RepositoryWriterCallback) {
 }
 
 // Flush all the unifited repository data
@@ -285,31 +240,13 @@ func (sr *shimObjectWriter) Write(p []byte) (n int, err error) {
 // Periodically called to preserve the state of data written to the repo so far.
 func (sr *shimObjectWriter) Checkpoint() (object.ID, error) {
 	id, err := sr.repoWriter.Checkpoint()
-	if err != nil {
-		return object.ID{}, err
-	}
-
-	objID, err := object.ParseID(string(id))
-	if err != nil {
-		return object.ID{}, errors.Wrapf(err, "error to parse object ID from %v", id)
-	}
-
-	return objID, err
+	return object.ID(id), err
 }
 
 // Result returns the object's unified identifier after the write completes.
 func (sr *shimObjectWriter) Result() (object.ID, error) {
 	id, err := sr.repoWriter.Result()
-	if err != nil {
-		return object.ID{}, err
-	}
-
-	objID, err := object.ParseID(string(id))
-	if err != nil {
-		return object.ID{}, errors.Wrapf(err, "error to parse object ID from %v", id)
-	}
-
-	return objID, err
+	return object.ID(id), err
 }
 
 // Close closes the repository and releases all resources.

@@ -72,7 +72,10 @@ func (m *RestoreItemOperationsMap) DeleteOperationsForRestore(restoreName string
 	// lock operations map
 	m.opsLock.Lock()
 	defer m.opsLock.Unlock()
-	delete(m.opsMap, restoreName)
+	if _, ok := m.opsMap[restoreName]; ok {
+		delete(m.opsMap, restoreName)
+	}
+	return
 }
 
 // UploadProgressAndPutOperationsForRestore will upload the item operations for this restore to
@@ -81,6 +84,7 @@ func (m *RestoreItemOperationsMap) UploadProgressAndPutOperationsForRestore(
 	backupStore persistence.BackupStore,
 	operations *OperationsForRestore,
 	restoreName string) error {
+
 	m.opsLock.Lock()
 	defer m.opsLock.Unlock()
 
@@ -119,19 +123,19 @@ type OperationsForRestore struct {
 	ErrsSinceUpdate    []string
 }
 
-func (m *OperationsForRestore) DeepCopy() *OperationsForRestore {
-	if m == nil {
+func (in *OperationsForRestore) DeepCopy() *OperationsForRestore {
+	if in == nil {
 		return nil
 	}
 	out := new(OperationsForRestore)
-	m.DeepCopyInto(out)
+	in.DeepCopyInto(out)
 	return out
 }
 
-func (m *OperationsForRestore) DeepCopyInto(out *OperationsForRestore) {
-	*out = *m
-	if m.Operations != nil {
-		in, out := &m.Operations, &out.Operations
+func (in *OperationsForRestore) DeepCopyInto(out *OperationsForRestore) {
+	*out = *in
+	if in.Operations != nil {
+		in, out := &in.Operations, &out.Operations
 		*out = make([]*itemoperation.RestoreOperation, len(*in))
 		for i := range *in {
 			if (*in)[i] != nil {
@@ -141,17 +145,17 @@ func (m *OperationsForRestore) DeepCopyInto(out *OperationsForRestore) {
 			}
 		}
 	}
-	if m.ErrsSinceUpdate != nil {
-		in, out := &m.ErrsSinceUpdate, &out.ErrsSinceUpdate
+	if in.ErrsSinceUpdate != nil {
+		in, out := &in.ErrsSinceUpdate, &out.ErrsSinceUpdate
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
 }
 
-func (m *OperationsForRestore) uploadProgress(backupStore persistence.BackupStore, restoreName string) error {
-	if len(m.Operations) > 0 {
+func (o *OperationsForRestore) uploadProgress(backupStore persistence.BackupStore, restoreName string) error {
+	if len(o.Operations) > 0 {
 		var restoreItemOperations *bytes.Buffer
-		restoreItemOperations, errs := encode.ToJSONGzip(m.Operations, "restore item operations list")
+		restoreItemOperations, errs := encode.EncodeToJSONGzip(o.Operations, "restore item operations list")
 		if errs != nil {
 			return errors.Wrap(errs[0], "error encoding item operations json")
 		}
@@ -160,7 +164,7 @@ func (m *OperationsForRestore) uploadProgress(backupStore persistence.BackupStor
 			return errors.Wrap(err, "error uploading item operations json")
 		}
 	}
-	m.ChangesSinceUpdate = false
-	m.ErrsSinceUpdate = nil
+	o.ChangesSinceUpdate = false
+	o.ErrsSinceUpdate = nil
 	return nil
 }

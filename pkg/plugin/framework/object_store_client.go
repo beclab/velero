@@ -87,9 +87,7 @@ func (c *ObjectStoreGRPCClient) PutObject(bucket, key string, body io.Reader) er
 			return nil
 		}
 		if err != nil {
-			if err := stream.CloseSend(); err != nil {
-				return common.FromGRPCError(err)
-			}
+			stream.CloseSend()
 			return errors.WithStack(err)
 		}
 

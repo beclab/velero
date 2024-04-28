@@ -124,12 +124,12 @@ func (o *CreateOptions) Run(c *cobra.Command, f client.Factory) error {
 		return err
 	}
 
-	client, err := f.KubebuilderClient()
+	client, err := f.Client()
 	if err != nil {
 		return err
 	}
 
-	if err := client.Create(context.TODO(), volumeSnapshotLocation); err != nil {
+	if _, err := client.VeleroV1().VolumeSnapshotLocations(volumeSnapshotLocation.Namespace).Create(context.TODO(), volumeSnapshotLocation, metav1.CreateOptions{}); err != nil {
 		return errors.WithStack(err)
 	}
 

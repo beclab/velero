@@ -21,7 +21,6 @@ import (
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
@@ -37,19 +36,18 @@ func NewGetCommand(f client.Factory, use string) *cobra.Command {
 		Run: func(c *cobra.Command, args []string) {
 			err := output.ValidateFlags(c)
 			cmd.CheckError(err)
-			client, err := f.KubebuilderClient()
+			veleroClient, err := f.Client()
 			cmd.CheckError(err)
-			locations := new(api.VolumeSnapshotLocationList)
-
+			var locations *api.VolumeSnapshotLocationList
 			if len(args) > 0 {
+				locations = new(api.VolumeSnapshotLocationList)
 				for _, name := range args {
-					location := new(api.VolumeSnapshotLocation)
-					err := client.Get(context.TODO(), kbclient.ObjectKey{Namespace: f.Namespace(), Name: name}, location)
+					location, err := veleroClient.VeleroV1().VolumeSnapshotLocations(f.Namespace()).Get(context.TODO(), name, metav1.GetOptions{})
 					cmd.CheckError(err)
 					locations.Items = append(locations.Items, *location)
 				}
 			} else {
-				err = client.List(context.TODO(), locations, &kbclient.ListOptions{Namespace: f.Namespace()})
+				locations, err = veleroClient.VeleroV1().VolumeSnapshotLocations(f.Namespace()).List(context.TODO(), listOptions)
 				cmd.CheckError(err)
 			}
 			_, err = output.PrintWithFormat(c, locations)

@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/dynamic/dynamicinformer"
 
 	"github.com/vmware-tanzu/velero/pkg/client"
 )
@@ -36,11 +35,6 @@ var _ client.DynamicFactory = &FakeDynamicFactory{}
 func (df *FakeDynamicFactory) ClientForGroupVersionResource(gv schema.GroupVersion, resource metav1.APIResource, namespace string) (client.Dynamic, error) {
 	args := df.Called(gv, resource, namespace)
 	return args.Get(0).(client.Dynamic), args.Error(1)
-}
-
-func (df *FakeDynamicFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSharedInformerFactory {
-	args := df.Called()
-	return args.Get(0).(dynamicinformer.DynamicSharedInformerFactory)
 }
 
 type FakeDynamicClient struct {

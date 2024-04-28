@@ -83,7 +83,7 @@ func (b *BackupBuilder) ObjectMeta(opts ...ObjectMetaOpt) *BackupBuilder {
 
 // FromSchedule sets the Backup's spec and labels from the Schedule template
 func (b *BackupBuilder) FromSchedule(schedule *velerov1api.Schedule) *BackupBuilder {
-	var labels map[string]string
+	var labels = make(map[string]string)
 
 	// Check if there's explicit Labels defined in the Schedule object template
 	// and if present then copy it to the backup object.
@@ -285,32 +285,5 @@ func (b *BackupBuilder) ItemOperationTimeout(timeout time.Duration) *BackupBuild
 // ResourcePolicies sets the Backup's resource polices.
 func (b *BackupBuilder) ResourcePolicies(name string) *BackupBuilder {
 	b.object.Spec.ResourcePolicy = &v1.TypedLocalObjectReference{Kind: resourcepolicies.ConfigmapRefType, Name: name}
-	return b
-}
-
-// SnapshotMoveData sets the Backup's "snapshot move data" flag.
-func (b *BackupBuilder) SnapshotMoveData(val bool) *BackupBuilder {
-	b.object.Spec.SnapshotMoveData = &val
-	return b
-}
-
-// DataMover sets the Backup's data mover
-func (b *BackupBuilder) DataMover(name string) *BackupBuilder {
-	b.object.Spec.DataMover = name
-	return b
-}
-
-// ParallelFilesUpload sets the Backup's uploader parallel uploads
-func (b *BackupBuilder) ParallelFilesUpload(parallel int) *BackupBuilder {
-	if b.object.Spec.UploaderConfig == nil {
-		b.object.Spec.UploaderConfig = &velerov1api.UploaderConfigForBackup{}
-	}
-	b.object.Spec.UploaderConfig.ParallelFilesUpload = parallel
-	return b
-}
-
-// WithStatus sets the Backup's status.
-func (b *BackupBuilder) WithStatus(status velerov1api.BackupStatus) *BackupBuilder {
-	b.object.Status = status
 	return b
 }

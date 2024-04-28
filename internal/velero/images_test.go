@@ -128,6 +128,7 @@ func testDefaultImage(t *testing.T, defaultImageFn func() string, imageName stri
 			assert.Equal(t, tc.want, defaultImageFn())
 		})
 	}
+
 }
 
 func TestDefaultVeleroImage(t *testing.T) {

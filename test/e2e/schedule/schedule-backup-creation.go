@@ -10,9 +10,10 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	. "github.com/vmware-tanzu/velero/test/e2e"
 	. "github.com/vmware-tanzu/velero/test/e2e/test"
-	. "github.com/vmware-tanzu/velero/test/util/k8s"
-	. "github.com/vmware-tanzu/velero/test/util/velero"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/k8s"
+	. "github.com/vmware-tanzu/velero/test/e2e/util/velero"
 )
 
 type ScheduleBackupCreation struct {
@@ -30,13 +31,11 @@ type ScheduleBackupCreation struct {
 	podSleepDuration time.Duration
 }
 
-var ScheduleBackupCreationTest func() = TestFunc(&ScheduleBackupCreation{})
+var ScheduleBackupCreationTest func() = TestFunc(&ScheduleBackupCreation{namespace: "sch1", TestCase: TestCase{NSBaseName: "schedule-backup-creation-test", UseVolumeSnapshots: false}})
 
 func (n *ScheduleBackupCreation) Init() error {
-	n.TestCase.Init()
-	n.CaseBaseName = "schedule-backup-creation-test" + n.UUIDgen
-	n.ScheduleName = "schedule-" + n.CaseBaseName
-	n.namespace = n.GetTestCase().CaseBaseName
+	n.VeleroCfg = VeleroCfg
+	n.Client = *n.VeleroCfg.ClientToInstallVelero
 	n.Period = 3      // Unit is minute
 	n.verifyTimes = 5 // More larger verify times more confidence we have
 	podSleepDurationStr := "300s"
@@ -54,25 +53,33 @@ func (n *ScheduleBackupCreation) Init() error {
 	n.volume = "volume-1"
 	n.podName = "pod-1"
 	n.pvcName = "pvc-1"
-	n.ScheduleArgs = []string{
-		"--include-namespaces", n.namespace,
-		"--schedule=*/" + fmt.Sprintf("%v", n.Period) + " * * * *",
-	}
-	Expect(n.Period).To(BeNumerically("<", 30))
 	return nil
 }
 
+func (n *ScheduleBackupCreation) StartRun() error {
+	n.namespace = fmt.Sprintf("%s-%s", n.NSBaseName, "ns")
+	n.ScheduleName = n.ScheduleName + "schedule-" + UUIDgen.String()
+	n.RestoreName = n.RestoreName + "restore-ns-mapping-" + UUIDgen.String()
+
+	n.ScheduleArgs = []string{
+		"--include-namespaces", n.namespace,
+		"--schedule=*/" + fmt.Sprintf("%v", n.Period) + " * * * *",
+		"--default-volumes-to-fs-backup",
+	}
+	Expect(n.Period < 30).To(Equal(true))
+	return nil
+}
 func (p *ScheduleBackupCreation) CreateResources() error {
-	p.Ctx, p.CtxCancel = context.WithTimeout(context.Background(), 60*time.Minute)
+	p.Ctx, _ = context.WithTimeout(context.Background(), 60*time.Minute)
 	By(fmt.Sprintf("Create namespace %s", p.namespace), func() {
-		Expect(CreateNamespace(p.Ctx, p.Client, p.namespace)).To(Succeed(),
+		Expect(CreateNamespace(context.Background(), p.Client, p.namespace)).To(Succeed(),
 			fmt.Sprintf("Failed to create namespace %s", p.namespace))
 	})
 
 	By(fmt.Sprintf("Create pod %s in namespace %s", p.podName, p.namespace), func() {
 		_, err := CreatePod(p.Client, p.namespace, p.podName, "default", p.pvcName, []string{p.volume}, nil, p.podAnn)
 		Expect(err).To(Succeed())
-		err = WaitForPods(p.Ctx, p.Client, p.namespace, []string{p.podName})
+		err = WaitForPods(context.Background(), p.Client, p.namespace, []string{p.podName})
 		Expect(err).To(Succeed())
 	})
 	return nil
@@ -88,9 +95,9 @@ func (n *ScheduleBackupCreation) Backup() error {
 			now := time.Now().Minute()
 			triggerNow := now % n.Period
 			if triggerNow == 0 {
-				Expect(VeleroScheduleCreate(n.Ctx, n.VeleroCfg.VeleroCLI, n.VeleroCfg.VeleroNamespace, n.ScheduleName, n.ScheduleArgs)).To(Succeed(), func() string {
-					RunDebug(context.Background(), n.VeleroCfg.VeleroCLI, n.VeleroCfg.VeleroNamespace, "", "")
-					return "Fail to create schedule"
+				Expect(VeleroScheduleCreate(n.Ctx, VeleroCfg.VeleroCLI, VeleroCfg.VeleroNamespace, n.ScheduleName, n.ScheduleArgs)).To(Succeed(), func() string {
+					RunDebug(context.Background(), VeleroCfg.VeleroCLI, VeleroCfg.VeleroNamespace, "", "")
+					return "Fail to restore workload"
 				})
 				break
 			}
@@ -107,9 +114,9 @@ func (n *ScheduleBackupCreation) Backup() error {
 			mi, _ := time.ParseDuration("60s")
 			time.Sleep(n.podSleepDuration + mi)
 			bMap := make(map[string]string)
-			backupsInfo, err := GetScheduledBackupsCreationTime(n.Ctx, n.VeleroCfg.VeleroCLI, "default", n.ScheduleName)
+			backupsInfo, err := GetScheduledBackupsCreationTime(context.Background(), VeleroCfg.VeleroCLI, "default", n.ScheduleName)
 			Expect(err).To(Succeed())
-			Expect(backupsInfo).To(HaveLen(i))
+			Expect(len(backupsInfo) == i).To(Equal(true))
 			for index, bi := range backupsInfo {
 				bList := strings.Split(bi, ",")
 				fmt.Printf("Backup %d: %v\n", index, bList)
@@ -126,10 +133,6 @@ func (n *ScheduleBackupCreation) Backup() error {
 	return nil
 }
 
-func (n *ScheduleBackupCreation) Clean() error {
-	if !n.VeleroCfg.Debug {
-		Expect(VeleroScheduleDelete(n.Ctx, n.VeleroCfg.VeleroCLI, n.VeleroCfg.VeleroNamespace, n.ScheduleName)).To(Succeed())
-		Expect(n.TestCase.Clean()).To(Succeed())
-	}
+func (n *ScheduleBackupCreation) Restore() error {
 	return nil
 }

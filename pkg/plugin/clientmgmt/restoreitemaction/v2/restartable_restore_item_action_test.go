@@ -47,7 +47,7 @@ func TestRestartableGetRestoreItemAction(t *testing.T) {
 		{
 			name:          "wrong type",
 			plugin:        3,
-			expectedError: "plugin int is not a RestoreItemActionV2",
+			expectedError: "int is not a RestoreItemActionV2!",
 		},
 		{
 			name:   "happy path",

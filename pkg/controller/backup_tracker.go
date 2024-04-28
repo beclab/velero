@@ -35,13 +35,13 @@ type BackupTracker interface {
 
 type backupTracker struct {
 	lock    sync.RWMutex
-	backups sets.Set[string]
+	backups sets.String
 }
 
 // NewBackupTracker returns a new BackupTracker.
 func NewBackupTracker() BackupTracker {
 	return &backupTracker{
-		backups: sets.New[string](),
+		backups: sets.NewString(),
 	}
 }
 

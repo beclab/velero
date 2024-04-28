@@ -1,18 +1,3 @@
-/*
-Copyright The Velero Contributors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package resourcepolicies
 
 import (
@@ -84,14 +69,14 @@ func TestCapacityConditionValidate(t *testing.T) {
 func TestValidate(t *testing.T) {
 	testCases := []struct {
 		name    string
-		res     *ResourcePolicies
+		res     *resourcePolicies
 		wantErr bool
 	}{
 		{
 			name: "unknown key in yaml",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -110,9 +95,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "error format of capacity",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -130,9 +115,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "error format of storageClass",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -150,9 +135,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "error format of csi",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -167,9 +152,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v2",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -186,9 +171,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "unsupported action",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "unsupported"},
 						Conditions: map[string]interface{}{
@@ -205,9 +190,9 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name: "error format of nfs",
-			res: &ResourcePolicies{
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -221,10 +206,10 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "supported format volume policies",
-			res: &ResourcePolicies{
+			name: "supported formart volume policies",
+			res: &resourcePolicies{
 				Version: "v1",
-				VolumePolicies: []VolumePolicy{
+				VolumePolicies: []volumePolicy{
 					{
 						Action: Action{Type: "skip"},
 						Conditions: map[string]interface{}{
@@ -234,81 +219,6 @@ func TestValidate(t *testing.T) {
 								map[string]interface{}{
 									"driver": "aws.efs.csi.driver",
 								}),
-							"nfs": interface{}(
-								map[string]interface{}{
-									"server": "192.168.20.90",
-									"path":   "/mnt/data/",
-								}),
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "supported format volume policies, action type snapshot",
-			res: &ResourcePolicies{
-				Version: "v1",
-				VolumePolicies: []VolumePolicy{
-					{
-						Action: Action{Type: "snapshot"},
-						Conditions: map[string]interface{}{
-							"capacity":     "0,10Gi",
-							"storageClass": []string{"gp2", "ebs-sc"},
-							"csi": interface{}(
-								map[string]interface{}{
-									"driver": "aws.efs.csi.driver",
-								}),
-							"nfs": interface{}(
-								map[string]interface{}{
-									"server": "192.168.20.90",
-									"path":   "/mnt/data/",
-								}),
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "supported format volume policies, action type fs-backup",
-			res: &ResourcePolicies{
-				Version: "v1",
-				VolumePolicies: []VolumePolicy{
-					{
-						Action: Action{Type: "fs-backup"},
-						Conditions: map[string]interface{}{
-							"capacity":     "0,10Gi",
-							"storageClass": []string{"gp2", "ebs-sc"},
-							"csi": interface{}(
-								map[string]interface{}{
-									"driver": "aws.efs.csi.driver",
-								}),
-							"nfs": interface{}(
-								map[string]interface{}{
-									"server": "192.168.20.90",
-									"path":   "/mnt/data/",
-								}),
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "supported format volume policies, action type fs-backup and snapshot",
-			res: &ResourcePolicies{
-				Version: "v1",
-				VolumePolicies: []VolumePolicy{
-					{
-						Action: Action{Type: Snapshot},
-						Conditions: map[string]interface{}{
-							"storageClass": []string{"gp2"},
-						},
-					},
-					{
-						Action: Action{Type: FSBackup},
-						Conditions: map[string]interface{}{
 							"nfs": interface{}(
 								map[string]interface{}{
 									"server": "192.168.20.90",
@@ -324,7 +234,7 @@ func TestValidate(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			policies := &Policies{}
-			err1 := policies.BuildPolicy(tc.res)
+			err1 := policies.buildPolicy(tc.res)
 			err2 := policies.Validate()
 
 			if tc.wantErr {

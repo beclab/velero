@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	corev1api "k8s.io/api/core/v1"
@@ -32,7 +32,6 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/builder"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
-	"github.com/vmware-tanzu/velero/pkg/cmd/util/confirm"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/flag"
 )
 
@@ -46,17 +45,12 @@ func NewAddCommand(f client.Factory) *cobra.Command {
 		imagePullPolicies   = []string{string(corev1api.PullAlways), string(corev1api.PullIfNotPresent), string(corev1api.PullNever)}
 		imagePullPolicyFlag = flag.NewEnum(string(corev1api.PullIfNotPresent), imagePullPolicies...)
 	)
-	o := confirm.NewConfirmOptionsWithDescription("Confirm add?, may cause the Velero server pod restart which will fail all ongoing jobs")
+
 	c := &cobra.Command{
 		Use:   "add IMAGE",
 		Short: "Add a plugin",
 		Args:  cobra.ExactArgs(1),
 		Run: func(c *cobra.Command, args []string) {
-			if !o.Confirm && !confirm.GetConfirmation("velero plugin add may cause the Velero server pod restart, so it is a dangerous operation",
-				"once Velero server restarts, all the ongoing jobs will fail.") {
-				// Don't do anything unless we get confirmation
-				return
-			}
 			kubeClient, err := f.KubeClient()
 			if err != nil {
 				cmd.CheckError(err)
@@ -128,7 +122,6 @@ func NewAddCommand(f client.Factory) *cobra.Command {
 	}
 
 	c.Flags().Var(imagePullPolicyFlag, "image-pull-policy", fmt.Sprintf("The imagePullPolicy for the plugin container. Valid values are %s.", strings.Join(imagePullPolicies, ", ")))
-	o.BindFlags(c.Flags())
 
 	return c
 }

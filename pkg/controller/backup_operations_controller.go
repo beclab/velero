@@ -19,10 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"time"
-
-	v2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/backupitemaction/v2"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -92,7 +89,7 @@ func (c *backupOperationsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Backup{}, builder.WithPredicates(kube.FalsePredicate{})).
-		WatchesRawSource(s, nil, builder.WithPredicates(gp)).
+		Watches(s, nil, builder.WithPredicates(gp)).
 		Complete(c)
 }
 
@@ -188,15 +185,14 @@ func (c *backupOperationsReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		operations.ChangesSinceUpdate = true
 	}
 
-	if len(operations.ErrsSinceUpdate) > 0 {
-		backup.Status.Phase = velerov1api.BackupPhaseWaitingForPluginOperationsPartiallyFailed
-	}
-
 	// if stillInProgress is false, backup moves to finalize phase and needs update
 	// if operations.ErrsSinceUpdate is not empty, then backup phase needs to change to
 	// BackupPhaseWaitingForPluginOperationsPartiallyFailed and needs update
 	// If the only changes are incremental progress, then no write is necessary, progress can remain in memory
 	if !stillInProgress {
+		if len(operations.ErrsSinceUpdate) > 0 {
+			backup.Status.Phase = velerov1api.BackupPhaseWaitingForPluginOperationsPartiallyFailed
+		}
 		if backup.Status.Phase == velerov1api.BackupPhaseWaitingForPluginOperations {
 			log.Infof("Marking backup %s Finalizing", backup.Name)
 			backup.Status.Phase = velerov1api.BackupPhaseFinalizing
@@ -219,6 +215,7 @@ func (c *backupOperationsReconciler) updateBackupAndOperationsJSON(
 	operations *itemoperationmap.OperationsForBackup,
 	changes bool,
 	completionChanges bool) error {
+
 	backupScheduleName := backup.GetLabels()[velerov1api.ScheduleNameLabel]
 
 	if len(operations.ErrsSinceUpdate) > 0 {
@@ -232,6 +229,7 @@ func (c *backupOperationsReconciler) updateBackupAndOperationsJSON(
 			backup.Status.Phase == velerov1api.BackupPhasePartiallyFailed ||
 			backup.Status.Phase == velerov1api.BackupPhaseFinalizing ||
 			backup.Status.Phase == velerov1api.BackupPhaseFinalizingPartiallyFailed) {
+
 			c.itemOperationsMap.DeleteOperationsForBackup(backup.Name)
 		} else if changes {
 			c.itemOperationsMap.PutOperationsForBackup(operations, backup.Name)
@@ -247,7 +245,7 @@ func (c *backupOperationsReconciler) updateBackupAndOperationsJSON(
 		// update file store
 		if backupStore != nil {
 			backupJSON := new(bytes.Buffer)
-			if err := encode.To(backup, "json", backupJSON); err != nil {
+			if err := encode.EncodeTo(backup, "json", backupJSON); err != nil {
 				removeIfComplete = false
 				return errors.Wrap(err, "error encoding backup json")
 			}
@@ -278,8 +276,6 @@ func (c *backupOperationsReconciler) updateBackupAndOperationsJSON(
 	return nil
 }
 
-// check progress of backupItemOperations
-// return: inProgressOperations, changes, completedCount, failedCount, errs
 func getBackupItemOperationProgress(
 	backup *velerov1api.Backup,
 	pluginManager clientmgmt.Manager,
@@ -296,7 +292,7 @@ func getBackupItemOperationProgress(
 			if err != nil {
 				operation.Status.Phase = itemoperation.OperationPhaseFailed
 				operation.Status.Error = err.Error()
-				errs = append(errs, wrapErrMsg(err.Error(), bia))
+				errs = append(errs, err.Error())
 				changes = true
 				failedCount++
 				continue
@@ -305,7 +301,7 @@ func getBackupItemOperationProgress(
 			if err != nil {
 				operation.Status.Phase = itemoperation.OperationPhaseFailed
 				operation.Status.Error = err.Error()
-				errs = append(errs, wrapErrMsg(err.Error(), bia))
+				errs = append(errs, err.Error())
 				changes = true
 				failedCount++
 				continue
@@ -343,7 +339,7 @@ func getBackupItemOperationProgress(
 				if operationProgress.Err != "" {
 					operation.Status.Phase = itemoperation.OperationPhaseFailed
 					operation.Status.Error = operationProgress.Err
-					errs = append(errs, wrapErrMsg(operationProgress.Err, bia))
+					errs = append(errs, operationProgress.Err)
 					changes = true
 					failedCount++
 					continue
@@ -358,7 +354,7 @@ func getBackupItemOperationProgress(
 				_ = bia.Cancel(operation.Spec.OperationID, backup)
 				operation.Status.Phase = itemoperation.OperationPhaseFailed
 				operation.Status.Error = "Asynchronous action timed out"
-				errs = append(errs, wrapErrMsg(operation.Status.Error, bia))
+				errs = append(errs, operation.Status.Error)
 				changes = true
 				failedCount++
 				continue
@@ -377,16 +373,4 @@ func getBackupItemOperationProgress(
 		}
 	}
 	return inProgressOperations, changes, completedCount, failedCount, errs
-}
-
-// wrap the error message to include the BIA name
-func wrapErrMsg(errMsg string, bia v2.BackupItemAction) string {
-	plugin := "unknown"
-	if bia != nil {
-		plugin = bia.Name()
-	}
-	if len(errMsg) > 0 {
-		errMsg += ", "
-	}
-	return fmt.Sprintf("%splugin: %s", errMsg, plugin)
 }

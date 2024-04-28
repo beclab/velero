@@ -26,14 +26,14 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/plugin/framework/common"
 )
 
-type Factory interface {
+type ProcessFactory interface {
 	newProcess(command string, logger logrus.FieldLogger, logLevel logrus.Level) (Process, error)
 }
 
 type processFactory struct {
 }
 
-func newProcessFactory() Factory {
+func newProcessFactory() ProcessFactory {
 	return &processFactory{}
 }
 

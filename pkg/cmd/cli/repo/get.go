@@ -21,8 +21,6 @@ import (
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
@@ -40,24 +38,19 @@ func NewGetCommand(f client.Factory, use string) *cobra.Command {
 			err := output.ValidateFlags(c)
 			cmd.CheckError(err)
 
-			crClient, err := f.KubebuilderClient()
+			veleroClient, err := f.Client()
 			cmd.CheckError(err)
 
-			repos := new(api.BackupRepositoryList)
+			var repos *api.BackupRepositoryList
 			if len(args) > 0 {
+				repos = new(api.BackupRepositoryList)
 				for _, name := range args {
-					repo := new(api.BackupRepository)
-					err := crClient.Get(context.TODO(), ctrlclient.ObjectKey{Namespace: f.Namespace(), Name: name}, repo)
+					repo, err := veleroClient.VeleroV1().BackupRepositories(f.Namespace()).Get(context.TODO(), name, metav1.GetOptions{})
 					cmd.CheckError(err)
 					repos.Items = append(repos.Items, *repo)
 				}
 			} else {
-				selector := labels.NewSelector()
-				if listOptions.LabelSelector != "" {
-					selector, err = labels.Parse(listOptions.LabelSelector)
-					cmd.CheckError(err)
-				}
-				err = crClient.List(context.TODO(), repos, &ctrlclient.ListOptions{LabelSelector: selector})
+				repos, err = veleroClient.VeleroV1().BackupRepositories(f.Namespace()).List(context.TODO(), listOptions)
 				cmd.CheckError(err)
 			}
 

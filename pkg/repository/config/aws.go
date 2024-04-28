@@ -14,36 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:gosec // Internal usage. No need to check.
+//nolint:gosec
 package config
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"time"
 
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	s3manager "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/pkg/errors"
 )
 
 const (
 	// AWS specific environment variable
 	awsProfileEnvVar         = "AWS_PROFILE"
-	awsKeyIDEnvVar           = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnvVar       = "AWS_SECRET_ACCESS_KEY"
-	awsSessTokenEnvVar       = "AWS_SESSION_TOKEN"
 	awsProfileKey            = "profile"
 	awsCredentialsFileEnvVar = "AWS_SHARED_CREDENTIALS_FILE"
-	awsConfigFileEnvVar      = "AWS_CONFIG_FILE"
-	awsDefaultProfile        = "default"
 )
 
 // GetS3ResticEnvVars gets the environment variables that restic
@@ -60,120 +49,52 @@ func GetS3ResticEnvVars(config map[string]string) (map[string]string, error) {
 		result[awsProfileEnvVar] = profile
 	}
 
-	// GetS3ResticEnvVars reads the AWS config, from files and envs
-	// if needed assumes the role and returns the session credentials
-	// setting these variables emulates what would happen for example when using kube2iam
-	if creds, err := GetS3Credentials(config); err == nil && creds != nil {
-		result[awsKeyIDEnvVar] = creds.AccessKeyID
-		result[awsSecretKeyEnvVar] = creds.SecretAccessKey
-		result[awsSessTokenEnvVar] = creds.SessionToken
-		result[awsCredentialsFileEnvVar] = ""
-		result[awsProfileEnvVar] = "" // profile is not needed since we have the credentials from profile via GetS3Credentials
-		result[awsConfigFileEnvVar] = ""
-	}
-
 	return result, nil
 }
 
 // GetS3Credentials gets the S3 credential values according to the information
 // of the provided config or the system's environment variables
-func GetS3Credentials(config map[string]string) (*aws.Credentials, error) {
-	var opts []func(*awsconfig.LoadOptions) error
+func GetS3Credentials(config map[string]string) (credentials.Value, error) {
 	credentialsFile := config[CredentialsFileKey]
 	if credentialsFile == "" {
-		credentialsFile = os.Getenv(awsCredentialsFileEnvVar)
+		credentialsFile = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
 	}
-	if credentialsFile != "" {
-		opts = append(opts, awsconfig.WithSharedCredentialsFiles([]string{credentialsFile}),
-			// To support the existing use case where config file is passed
-			// as credentials of a BSL
-			awsconfig.WithSharedConfigFiles([]string{credentialsFile}))
-	}
-	opts = append(opts, awsconfig.WithSharedConfigProfile(config[awsProfileKey]))
 
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
+	if credentialsFile == "" {
+		return credentials.Value{}, errors.New("missing credential file")
+	}
+
+	creds := credentials.NewSharedCredentials(credentialsFile, "")
+	credValue, err := creds.Get()
 	if err != nil {
-		return nil, err
+		return credValue, err
 	}
 
-	if credentialsFile != "" && os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
-		// Reset the config to use the credentials from the credentials/config file
-		profile := config[awsProfileKey]
-		if profile == "" {
-			profile = awsDefaultProfile
-		}
-		sfp, err := awsconfig.LoadSharedConfigProfile(context.Background(), profile, func(o *awsconfig.LoadSharedConfigOptions) {
-			o.ConfigFiles = []string{credentialsFile}
-			o.CredentialsFiles = []string{credentialsFile}
-		})
-		if err != nil {
-			return nil, fmt.Errorf("error loading config profile '%s': %v", profile, err)
-		}
-		if err := resolveCredsFromProfile(&cfg, &sfp); err != nil {
-			return nil, fmt.Errorf("error resolving creds from profile '%s': %v", profile, err)
-		}
-	}
-
-	creds, err := cfg.Credentials.Retrieve(context.Background())
-
-	return &creds, err
+	return credValue, nil
 }
 
 // GetAWSBucketRegion returns the AWS region that a bucket is in, or an error
 // if the region cannot be determined.
 func GetAWSBucketRegion(bucket string) (string, error) {
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-	client := s3.NewFromConfig(cfg)
-	region, err := s3manager.GetBucketRegion(context.Background(), client, bucket)
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-	if region == "" {
-		return "", errors.New("unable to determine bucket's region")
-	}
-	return region, nil
-}
+	var region string
 
-func resolveCredsFromProfile(cfg *aws.Config, sharedConfig *awsconfig.SharedConfig) error {
-	var err error
-	switch {
-	case sharedConfig.Source != nil:
-		// Assume IAM role with credentials source from a different profile.
-		err = resolveCredsFromProfile(cfg, sharedConfig.Source)
-	case sharedConfig.Credentials.HasKeys():
-		// Static Credentials from Shared Config/Credentials file.
-		cfg.Credentials = credentials.StaticCredentialsProvider{
-			Value: sharedConfig.Credentials,
+	sess, err := session.NewSession()
+	if err != nil {
+		return "", errors.WithStack(err)
+	}
+
+	for _, partition := range endpoints.DefaultPartitions() {
+		for regionHint := range partition.Regions() {
+			region, _ = s3manager.GetBucketRegion(context.Background(), sess, bucket, regionHint)
+
+			// we only need to try a single region hint per partition, so break after the first
+			break
+		}
+
+		if region != "" {
+			return region, nil
 		}
 	}
-	if err != nil {
-		return err
-	}
-	if len(sharedConfig.RoleARN) > 0 {
-		credsFromAssumeRole(cfg, sharedConfig)
-	}
-	return nil
-}
 
-func credsFromAssumeRole(cfg *aws.Config, sharedCfg *awsconfig.SharedConfig) {
-	optFns := []func(*stscreds.AssumeRoleOptions){
-		func(options *stscreds.AssumeRoleOptions) {
-			options.RoleSessionName = sharedCfg.RoleSessionName
-			if sharedCfg.RoleDurationSeconds != nil {
-				if *sharedCfg.RoleDurationSeconds/time.Minute > 15 {
-					options.Duration = *sharedCfg.RoleDurationSeconds
-				}
-			}
-			if len(sharedCfg.ExternalID) > 0 {
-				options.ExternalID = aws.String(sharedCfg.ExternalID)
-			}
-			if len(sharedCfg.MFASerial) != 0 {
-				options.SerialNumber = aws.String(sharedCfg.MFASerial)
-			}
-		},
-	}
-	cfg.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(*cfg), sharedCfg.RoleARN, optFns...)
+	return "", errors.New("unable to determine bucket's region")
 }

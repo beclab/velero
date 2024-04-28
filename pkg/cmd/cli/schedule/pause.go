@@ -22,11 +22,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
@@ -37,7 +35,6 @@ import (
 // NewPauseCommand creates the command for pause
 func NewPauseCommand(f client.Factory, use string) *cobra.Command {
 	o := cli.NewSelectOptions("pause", "schedule")
-	pauseOpts := NewPauseOptions()
 
 	c := &cobra.Command{
 		Use:   use,
@@ -56,32 +53,17 @@ func NewPauseCommand(f client.Factory, use string) *cobra.Command {
 		Run: func(c *cobra.Command, args []string) {
 			cmd.CheckError(o.Complete(args))
 			cmd.CheckError(o.Validate())
-			cmd.CheckError(runPause(f, o, true, pauseOpts.SkipOptions.SkipImmediately.Value))
+			cmd.CheckError(runPause(f, o, true))
 		},
 	}
 
 	o.BindFlags(c.Flags())
-	pauseOpts.BindFlags(c.Flags())
 
 	return c
 }
 
-type PauseOptions struct {
-	SkipOptions *SkipOptions
-}
-
-func NewPauseOptions() *PauseOptions {
-	return &PauseOptions{
-		SkipOptions: NewSkipOptions(),
-	}
-}
-
-func (o *PauseOptions) BindFlags(flags *pflag.FlagSet) {
-	o.SkipOptions.BindFlags(flags)
-}
-
-func runPause(f client.Factory, o *cli.SelectOptions, paused bool, skipImmediately *bool) error {
-	crClient, err := f.KubebuilderClient()
+func runPause(f client.Factory, o *cli.SelectOptions, paused bool) error {
+	client, err := f.Client()
 	if err != nil {
 		return err
 	}
@@ -93,8 +75,7 @@ func runPause(f client.Factory, o *cli.SelectOptions, paused bool, skipImmediate
 	switch {
 	case len(o.Names) > 0:
 		for _, name := range o.Names {
-			schedule := new(velerov1api.Schedule)
-			err := crClient.Get(context.TODO(), ctrlclient.ObjectKey{Name: name, Namespace: f.Namespace()}, schedule)
+			schedule, err := client.VeleroV1().Schedules(f.Namespace()).Get(context.TODO(), name, metav1.GetOptions{})
 			if err != nil {
 				errs = append(errs, errors.WithStack(err))
 				continue
@@ -102,16 +83,11 @@ func runPause(f client.Factory, o *cli.SelectOptions, paused bool, skipImmediate
 			schedules = append(schedules, schedule)
 		}
 	default:
-		selector := labels.Everything()
+		selector := labels.Everything().String()
 		if o.Selector.LabelSelector != nil {
-			convertedSelector, err := metav1.LabelSelectorAsSelector(o.Selector.LabelSelector)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			selector = convertedSelector
+			selector = o.Selector.String()
 		}
-		res := new(velerov1api.ScheduleList)
-		err := crClient.List(context.TODO(), res, &ctrlclient.ListOptions{
+		res, err := client.VeleroV1().Schedules(f.Namespace()).List(context.TODO(), metav1.ListOptions{
 			LabelSelector: selector,
 		})
 		if err != nil {
@@ -137,8 +113,7 @@ func runPause(f client.Factory, o *cli.SelectOptions, paused bool, skipImmediate
 			continue
 		}
 		schedule.Spec.Paused = paused
-		schedule.Spec.SkipImmediately = skipImmediately
-		if err := crClient.Update(context.TODO(), schedule); err != nil {
+		if _, err := client.VeleroV1().Schedules(schedule.Namespace).Update(context.TODO(), schedule, metav1.UpdateOptions{}); err != nil {
 			return errors.Wrapf(err, "failed to update schedule %s", schedule.Name)
 		}
 		fmt.Printf("Schedule %s %s successfully\n", schedule.Name, msg)

@@ -19,7 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
-	"io"
+	"io/ioutil"
 	"testing"
 	"time"
 
@@ -36,7 +36,6 @@ import (
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/builder"
-	"github.com/vmware-tanzu/velero/pkg/features"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	"github.com/vmware-tanzu/velero/pkg/metrics"
@@ -46,11 +45,10 @@ import (
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
 )
 
-func mockBackupFinalizerReconciler(fakeClient kbclient.Client, fakeGlobalClient kbclient.Client, fakeClock *testclocks.FakeClock) (*backupFinalizerReconciler, *fakeBackupper) {
+func mockBackupFinalizerReconciler(fakeClient kbclient.Client, fakeClock *testclocks.FakeClock) (*backupFinalizerReconciler, *fakeBackupper) {
 	backupper := new(fakeBackupper)
 	return NewBackupFinalizerReconciler(
 		fakeClient,
-		fakeGlobalClient,
 		fakeClock,
 		backupper,
 		func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
@@ -67,14 +65,12 @@ func TestBackupFinalizerReconcile(t *testing.T) {
 	defaultBackupLocation := builder.ForBackupStorageLocation(velerov1api.DefaultNamespace, "default").Result()
 
 	tests := []struct {
-		name                string
-		backup              *velerov1api.Backup
-		backupOperations    []*itemoperation.BackupOperation
-		backupLocation      *velerov1api.BackupStorageLocation
-		enableCSI           bool
-		expectError         bool
-		expectPhase         velerov1api.BackupPhase
-		expectedCompletedVS int
+		name             string
+		backup           *velerov1api.Backup
+		backupOperations []*itemoperation.BackupOperation
+		backupLocation   *velerov1api.BackupStorageLocation
+		expectError      bool
+		expectPhase      velerov1api.BackupPhase
 	}{
 		{
 			name: "Finalizing backup is completed",
@@ -148,50 +144,6 @@ func TestBackupFinalizerReconcile(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "Test calculate backup.Status.BackupItemOperationsCompleted",
-			backup: builder.ForBackup(velerov1api.DefaultNamespace, "backup-3").
-				StorageLocation("default").
-				ObjectMeta(builder.WithUID("foo")).
-				StartTimestamp(fakeClock.Now()).
-				WithStatus(velerov1api.BackupStatus{
-					StartTimestamp:              &metav1Now,
-					CompletionTimestamp:         &metav1Now,
-					CSIVolumeSnapshotsAttempted: 1,
-					Phase:                       velerov1api.BackupPhaseFinalizing,
-				}).
-				Result(),
-			backupLocation:      defaultBackupLocation,
-			enableCSI:           true,
-			expectPhase:         velerov1api.BackupPhaseCompleted,
-			expectedCompletedVS: 1,
-			backupOperations: []*itemoperation.BackupOperation{
-				{
-					Spec: itemoperation.BackupOperationSpec{
-						BackupName:       "backup-3",
-						BackupUID:        "foo",
-						BackupItemAction: "foo",
-						ResourceIdentifier: velero.ResourceIdentifier{
-							GroupResource: kuberesource.VolumeSnapshots,
-							Namespace:     "ns-1",
-							Name:          "vs-1",
-						},
-						PostOperationItems: []velero.ResourceIdentifier{
-							{
-								GroupResource: kuberesource.Secrets,
-								Namespace:     "ns-1",
-								Name:          "secret-1",
-							},
-						},
-						OperationID: "operation-3",
-					},
-					Status: itemoperation.OperationStatus{
-						Phase:   itemoperation.OperationPhaseCompleted,
-						Created: &metav1Now,
-					},
-				},
-			},
-		},
 	}
 
 	for _, test := range tests {
@@ -207,23 +159,13 @@ func TestBackupFinalizerReconcile(t *testing.T) {
 				initObjs = append(initObjs, test.backupLocation)
 			}
 
-			if test.enableCSI {
-				features.Enable(velerov1api.CSIFeatureFlag)
-				defer features.Enable()
-			}
-
 			fakeClient := velerotest.NewFakeControllerRuntimeClient(t, initObjs...)
-
-			fakeGlobalClient := velerotest.NewFakeControllerRuntimeClient(t, initObjs...)
-
-			reconciler, backupper := mockBackupFinalizerReconciler(fakeClient, fakeGlobalClient, fakeClock)
+			reconciler, backupper := mockBackupFinalizerReconciler(fakeClient, fakeClock)
 			pluginManager.On("CleanupClients").Return(nil)
 			backupStore.On("GetBackupItemOperations", test.backup.Name).Return(test.backupOperations, nil)
-			backupStore.On("GetBackupContents", mock.Anything).Return(io.NopCloser(bytes.NewReader([]byte("hello world"))), nil)
+			backupStore.On("GetBackupContents", mock.Anything).Return(ioutil.NopCloser(bytes.NewReader([]byte("hello world"))), nil)
 			backupStore.On("PutBackupContents", mock.Anything, mock.Anything).Return(nil)
 			backupStore.On("PutBackupMetadata", mock.Anything, mock.Anything).Return(nil)
-			backupStore.On("GetBackupVolumeInfos", mock.Anything).Return(nil, nil)
-			backupStore.On("PutBackupVolumeInfos", mock.Anything, mock.Anything).Return(nil)
 			pluginManager.On("GetBackupItemActionsV2").Return(nil, nil)
 			backupper.On("FinalizeBackup", mock.Anything, mock.Anything, mock.Anything, mock.Anything, framework.BackupItemActionResolverV2{}, mock.Anything).Return(nil)
 			_, err := reconciler.Reconcile(context.TODO(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: test.backup.Namespace, Name: test.backup.Name}})
@@ -238,7 +180,6 @@ func TestBackupFinalizerReconcile(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expectPhase, backupAfter.Status.Phase)
-			assert.Equal(t, test.expectedCompletedVS, backupAfter.Status.CSIVolumeSnapshotsCompleted)
 		})
 	}
 }

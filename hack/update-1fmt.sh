@@ -35,11 +35,13 @@ fi
 
 files="$(find . -type f -name '*.go' -not -path './.go/*' -not -path './vendor/*' -not -path './site/*' -not -path '*/generated/*' -not -name 'zz_generated*' -not -path '*/mocks/*')"
 echo "${ACTION} gofmt"
-output=$(gofmt "${MODE}" -s ${files})
-if [[ -n "${output}" ]]; then
-  VERIFY_FMT_FAILED=1
-  echo "${output}"
-fi
+for file in ${files}; do
+  output=$(gofmt "${MODE}" -s "${file}")
+  if [[ -n "${output}" ]]; then
+    VERIFY_FMT_FAILED=1
+    echo "${output}"
+  fi
+done
 if [[ -n "${VERIFY_FMT_FAILED:-}" ]]; then
   echo "${ACTION} gofmt - failed! Please run 'make update'."
 else
@@ -47,11 +49,13 @@ else
 fi
 
 echo "${ACTION} goimports"
-output=$(goimports "${MODE}" -local github.com/vmware-tanzu/velero ${files})
-if [[ -n "${output}" ]]; then
-  VERIFY_IMPORTS_FAILED=1
-  echo "${output}"
-fi
+for file in ${files}; do
+  output=$(goimports "${MODE}" -local github.com/vmware-tanzu/velero "${file}")
+  if [[ -n "${output}" ]]; then
+    VERIFY_IMPORTS_FAILED=1
+    echo "${output}"
+  fi
+done
 if [[ -n "${VERIFY_IMPORTS_FAILED:-}" ]]; then
   echo "${ACTION} goimports - failed! Please run 'make update'."
 else

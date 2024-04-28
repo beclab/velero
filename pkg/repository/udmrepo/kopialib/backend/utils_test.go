@@ -18,13 +18,12 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/kopia/kopia/repo/logging"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	storagemocks "github.com/vmware-tanzu/velero/pkg/repository/udmrepo/kopialib/backend/mocks"
 )
@@ -32,13 +31,13 @@ import (
 func TestOptionalHaveBool(t *testing.T) {
 	var expectMsg string
 	testCases := []struct {
-		name         string
-		key          string
-		flags        map[string]string
-		logger       *storagemocks.Core
-		retFuncCheck func(mock.Arguments)
-		expectMsg    string
-		retValue     bool
+		name          string
+		key           string
+		flags         map[string]string
+		logger        *storagemocks.Logger
+		retFuncErrorf func(mock.Arguments)
+		expectMsg     string
+		retValue      bool
 	}{
 		{
 			name:     "key not exist",
@@ -60,12 +59,9 @@ func TestOptionalHaveBool(t *testing.T) {
 			flags: map[string]string{
 				"fake-key": "fake-value",
 			},
-			logger: new(storagemocks.Core),
-			retFuncCheck: func(args mock.Arguments) {
-				ent := args[0].(zapcore.Entry)
-				if ent.Level == zapcore.ErrorLevel {
-					expectMsg = ent.Message
-				}
+			logger: new(storagemocks.Logger),
+			retFuncErrorf: func(args mock.Arguments) {
+				expectMsg = fmt.Sprintf(args[0].(string), args[1].(string), args[2].(string), args[3].(error))
 			},
 			expectMsg: "Ignore fake-key, value [fake-value] is invalid, err strconv.ParseBool: parsing \"fake-value\": invalid syntax",
 			retValue:  false,
@@ -75,12 +71,11 @@ func TestOptionalHaveBool(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.logger != nil {
-				tc.logger.On("Enabled", mock.Anything).Return(true)
-				tc.logger.On("Check", mock.Anything, mock.Anything).Run(tc.retFuncCheck).Return(&zapcore.CheckedEntry{})
+				tc.logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(tc.retFuncErrorf)
 			}
 
 			ctx := logging.WithLogger(context.Background(), func(module string) logging.Logger {
-				return zap.New(tc.logger).Sugar()
+				return tc.logger
 			})
 
 			retValue := optionalHaveBool(ctx, tc.key, tc.flags)

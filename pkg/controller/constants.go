@@ -32,7 +32,6 @@ const (
 	RestoreOperations     = "restore-operations"
 	Schedule              = "schedule"
 	ServerStatusRequest   = "server-status-request"
-	RestoreFinalizer      = "restore-finalizer"
 )
 
 // DisableableControllers is a list of controllers that can be disabled
@@ -49,5 +48,4 @@ var DisableableControllers = []string{
 	RestoreOperations,
 	Schedule,
 	ServerStatusRequest,
-	RestoreFinalizer,
 }

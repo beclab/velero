@@ -19,7 +19,7 @@ package v1
 import (
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +46,7 @@ func TestRestartableGetVolumeSnapshotter(t *testing.T) {
 		{
 			name:          "wrong type",
 			plugin:        3,
-			expectedError: "plugin int is not a VolumeSnapshotter",
+			expectedError: "int is not a VolumeSnapshotter!",
 		},
 		{
 			name:   "happy path",
@@ -96,7 +96,7 @@ func TestRestartableVolumeSnapshotterReinitialize(t *testing.T) {
 	}
 
 	err := r.Reinitialize(3)
-	assert.EqualError(t, err, "plugin int is not a VolumeSnapshotter")
+	assert.EqualError(t, err, "int is not a VolumeSnapshotter!")
 
 	volumeSnapshotter := new(providermocks.VolumeSnapshotter)
 	volumeSnapshotter.Test(t)
@@ -211,7 +211,7 @@ func TestRestartableVolumeSnapshotterDelegatedFunctions(t *testing.T) {
 		},
 		restartabletest.RestartableDelegateTest{
 			Function:                "CreateVolumeFromSnapshot",
-			Inputs:                  []interface{}{"snapshotID", "volumeID", "volumeAZ", to.Ptr(int64(10000))},
+			Inputs:                  []interface{}{"snapshotID", "volumeID", "volumeAZ", to.Int64Ptr(10000)},
 			ExpectedErrorOutputs:    []interface{}{"", errors.Errorf("reset error")},
 			ExpectedDelegateOutputs: []interface{}{"volumeID", errors.Errorf("delegate error")},
 		},
@@ -231,7 +231,7 @@ func TestRestartableVolumeSnapshotterDelegatedFunctions(t *testing.T) {
 			Function:                "GetVolumeInfo",
 			Inputs:                  []interface{}{"volumeID", "volumeAZ"},
 			ExpectedErrorOutputs:    []interface{}{"", (*int64)(nil), errors.Errorf("reset error")},
-			ExpectedDelegateOutputs: []interface{}{"volumeType", to.Ptr(int64(10000)), errors.Errorf("delegate error")},
+			ExpectedDelegateOutputs: []interface{}{"volumeType", to.Int64Ptr(10000), errors.Errorf("delegate error")},
 		},
 		restartabletest.RestartableDelegateTest{
 			Function:                "CreateSnapshot",

@@ -89,7 +89,7 @@ else
 fi
 
 if [[ -z "$BUILDX_PLATFORMS" ]]; then
-    BUILDX_PLATFORMS="linux/amd64,linux/arm64"
+    BUILDX_PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le"
 fi
 
 # Debugging info

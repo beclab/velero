@@ -54,9 +54,10 @@ func mockBackupRepositoryCR() *velerov1api.BackupRepository {
 			Name:      "repo",
 		},
 		Spec: velerov1api.BackupRepositorySpec{
-			MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+			MaintenanceFrequency: metav1.Duration{testMaintenanceFrequency},
 		},
 	}
+
 }
 
 func TestPatchBackupRepository(t *testing.T) {
@@ -92,7 +93,7 @@ func TestCheckNotReadyRepo(t *testing.T) {
 
 	err = reconciler.Client.Create(context.TODO(), locations)
 	assert.NoError(t, err)
-	_, err = reconciler.checkNotReadyRepo(context.TODO(), rr, reconciler.logger)
+	err = reconciler.checkNotReadyRepo(context.TODO(), rr, reconciler.logger)
 	assert.NoError(t, err)
 	assert.Equal(t, rr.Status.Phase, velerov1api.BackupRepositoryPhaseReady)
 	assert.Equal(t, "s3:test.amazonaws.com/bucket/restic/volume-ns-1", rr.Spec.ResticIdentifier)
@@ -152,7 +153,7 @@ func TestBackupRepoReconcile(t *testing.T) {
 					Name:      "unknown",
 				},
 				Spec: velerov1api.BackupRepositorySpec{
-					MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+					MaintenanceFrequency: metav1.Duration{testMaintenanceFrequency},
 				},
 			},
 			expectNil: true,
@@ -165,7 +166,7 @@ func TestBackupRepoReconcile(t *testing.T) {
 					Name:      "repo",
 				},
 				Spec: velerov1api.BackupRepositorySpec{
-					MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+					MaintenanceFrequency: metav1.Duration{testMaintenanceFrequency},
 				},
 			},
 			expectNil: true,
@@ -178,7 +179,7 @@ func TestBackupRepoReconcile(t *testing.T) {
 					Name:      "repo",
 				},
 				Spec: velerov1api.BackupRepositorySpec{
-					MaintenanceFrequency: metav1.Duration{Duration: testMaintenanceFrequency},
+					MaintenanceFrequency: metav1.Duration{testMaintenanceFrequency},
 				},
 				Status: velerov1api.BackupRepositoryStatus{
 					Phase: velerov1api.BackupRepositoryPhaseNew,

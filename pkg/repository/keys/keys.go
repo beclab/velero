@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:gosec // Internal call. No need to check.
+//nolint:gosec
 package keys
 
 import (

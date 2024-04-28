@@ -35,13 +35,18 @@ const (
 	GenOptionOwnerName   = "username"
 	GenOptionOwnerDomain = "domainname"
 
-	StoreOptionS3KeyID            = "accessKeyID"
+	StoreOptionS3KeyId            = "accessKeyID"
 	StoreOptionS3Provider         = "providerName"
 	StoreOptionS3SecretKey        = "secretAccessKey"
 	StoreOptionS3Token            = "sessionToken"
 	StoreOptionS3Endpoint         = "endpoint"
-	StoreOptionS3DisableTLS       = "doNotUseTLS"
-	StoreOptionS3DisableTLSVerify = "skipTLSVerify"
+	StoreOptionS3DisableTls       = "doNotUseTLS"
+	StoreOptionS3DisableTlsVerify = "skipTLSVerify"
+
+	StoreOptionAzureKey            = "storageKey"
+	StoreOptionAzureDomain         = "storageDomain"
+	StoreOptionAzureStorageAccount = "storageAccount"
+	StoreOptionAzureToken          = "sasToken"
 
 	StoreOptionFsPath = "fspath"
 
@@ -49,7 +54,6 @@ const (
 
 	StoreOptionOssBucket = "bucket"
 	StoreOptionOssRegion = "region"
-	StoreOptionCACert    = "caCert"
 
 	StoreOptionCredentialFile = "credFile"
 	StoreOptionPrefix         = "prefix"

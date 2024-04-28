@@ -51,127 +51,6 @@ type itemCollector struct {
 	cohabitatingResources map[string]*cohabitatingResource
 	dir                   string
 	pageSize              int
-	nsTracker             nsTracker
-}
-
-// nsTracker is used to integrate several namespace filters together.
-//  1. Backup's namespace Include/Exclude filters;
-//  2. Backup's (Or)LabelSelector selected namespace;
-//  3. Backup's (Or)LabelSelector selected resources' namespaces.
-//
-// Rules:
-//
-//	a. When backup namespace Include/Exclude filters get everything,
-//	The namespaces, which do not have backup including resources,
-//	are not collected.
-//
-//	b. If the namespace I/E filters and the (Or)LabelSelectors selected
-//	namespaces are different. The tracker takes the union of them.
-type nsTracker struct {
-	singleLabelSelector labels.Selector
-	orLabelSelector     []labels.Selector
-	namespaceFilter     *collections.IncludesExcludes
-	logger              logrus.FieldLogger
-
-	namespaceMap map[string]bool
-}
-
-// track add the namespace into the namespaceMap.
-func (nt *nsTracker) track(ns string) {
-	if nt.namespaceMap == nil {
-		nt.namespaceMap = make(map[string]bool)
-	}
-
-	if _, ok := nt.namespaceMap[ns]; !ok {
-		nt.namespaceMap[ns] = true
-	}
-}
-
-// isTracked check whether the namespace's name exists in
-// namespaceMap.
-func (nt *nsTracker) isTracked(ns string) bool {
-	if nt.namespaceMap != nil {
-		return nt.namespaceMap[ns]
-	}
-	return false
-}
-
-// init initialize the namespaceMap, and add elements according to
-// namespace include/exclude filters and the backup label selectors.
-func (nt *nsTracker) init(
-	unstructuredNSs []unstructured.Unstructured,
-	singleLabelSelector labels.Selector,
-	orLabelSelector []labels.Selector,
-	namespaceFilter *collections.IncludesExcludes,
-	logger logrus.FieldLogger,
-) {
-	if nt.namespaceMap == nil {
-		nt.namespaceMap = make(map[string]bool)
-	}
-	nt.singleLabelSelector = singleLabelSelector
-	nt.orLabelSelector = orLabelSelector
-	nt.namespaceFilter = namespaceFilter
-	nt.logger = logger
-
-	for _, namespace := range unstructuredNSs {
-		if nt.singleLabelSelector != nil &&
-			nt.singleLabelSelector.Matches(labels.Set(namespace.GetLabels())) {
-			nt.logger.Debugf(`Track namespace %s, 
-				because its labels match backup LabelSelector.`,
-				namespace.GetName(),
-			)
-
-			nt.track(namespace.GetName())
-			continue
-		}
-
-		if len(nt.orLabelSelector) > 0 {
-			for _, selector := range nt.orLabelSelector {
-				if selector.Matches(labels.Set(namespace.GetLabels())) {
-					nt.logger.Debugf(`Track namespace %s",
-						"because its labels match the backup OrLabelSelector.`,
-						namespace.GetName(),
-					)
-					nt.track(namespace.GetName())
-					continue
-				}
-			}
-		}
-
-		// Skip the backup when the backup's namespace filter has
-		// default value, and the namespace doesn't match backup
-		// LabelSelector and OrLabelSelector.
-		// https://github.com/vmware-tanzu/velero/issues/7105
-		if nt.namespaceFilter.IncludeEverything() &&
-			(nt.singleLabelSelector != nil || len(nt.orLabelSelector) > 0) {
-			continue
-		}
-
-		if nt.namespaceFilter.ShouldInclude(namespace.GetName()) {
-			nt.logger.Debugf(`Track namespace %s,
-				because its name match the backup namespace filter.`,
-				namespace.GetName(),
-			)
-			nt.track(namespace.GetName())
-		}
-	}
-}
-
-// filterNamespaces filters the input resource list to remove the
-// namespaces not tracked by the nsTracker.
-func (nt *nsTracker) filterNamespaces(
-	resources []*kubernetesResource,
-) []*kubernetesResource {
-	result := make([]*kubernetesResource, 0)
-
-	for _, resource := range resources {
-		if resource.groupResource != kuberesource.Namespaces ||
-			nt.isTracked(resource.name) {
-			result = append(result, resource)
-		}
-	}
-
-	return result
 }
 
 type kubernetesResource struct {
@@ -180,47 +59,36 @@ type kubernetesResource struct {
 	namespace, name, path string
 }
 
-// getItemsFromResourceIdentifiers get the kubernetesResources
-// specified by the input parameter resourceIDs.
-func (r *itemCollector) getItemsFromResourceIdentifiers(
-	resourceIDs []velero.ResourceIdentifier,
-) []*kubernetesResource {
+// getItemsFromResourceIdentifiers converts ResourceIdentifiers to
+// kubernetesResources
+func (r *itemCollector) getItemsFromResourceIdentifiers(resourceIDs []velero.ResourceIdentifier) []*kubernetesResource {
+
 	grResourceIDsMap := make(map[schema.GroupResource][]velero.ResourceIdentifier)
 	for _, resourceID := range resourceIDs {
-		grResourceIDsMap[resourceID.GroupResource] = append(
-			grResourceIDsMap[resourceID.GroupResource], resourceID)
+		grResourceIDsMap[resourceID.GroupResource] = append(grResourceIDsMap[resourceID.GroupResource], resourceID)
 	}
 	return r.getItems(grResourceIDsMap)
 }
 
-// getAllItems gets all backup-relevant items from all API groups.
+// getAllItems gets all relevant items from all API groups.
 func (r *itemCollector) getAllItems() []*kubernetesResource {
-	resources := r.getItems(nil)
-
-	return r.nsTracker.filterNamespaces(resources)
+	return r.getItems(nil)
 }
 
-// getItems gets all backup-relevant items from all API groups,
-//
+// getItems gets all relevant items from all API groups.
 // If resourceIDsMap is nil, then all items from the cluster are
-// pulled for each API group, subject to include/exclude rules,
-// except the namespace, because the namespace filtering depends on
-// all namespaced-scoped resources.
-//
+// pulled for each API group, subject to include/exclude rules.
 // If resourceIDsMap is supplied, then only those resources are
 // returned, with the appropriate APIGroup information filled in. In
 // this case, include/exclude rules are not invoked, since we already
 // have the list of items, we just need the item collector/discovery
 // helper to fill in the missing GVR, etc. context.
-func (r *itemCollector) getItems(
-	resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier,
-) []*kubernetesResource {
+func (r *itemCollector) getItems(resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier) []*kubernetesResource {
 	var resources []*kubernetesResource
 	for _, group := range r.discoveryHelper.Resources() {
 		groupItems, err := r.getGroupItems(r.log, group, resourceIDsMap)
 		if err != nil {
-			r.log.WithError(err).WithField("apiGroup", group.String()).
-				Error("Error collecting resources from API group")
+			r.log.WithError(err).WithField("apiGroup", group.String()).Error("Error collecting resources from API group")
 			continue
 		}
 
@@ -233,11 +101,7 @@ func (r *itemCollector) getItems(
 // getGroupItems collects all relevant items from a single API group.
 // If resourceIDsMap is supplied, then only those items are returned,
 // with GVR/APIResource metadata supplied.
-func (r *itemCollector) getGroupItems(
-	log logrus.FieldLogger,
-	group *metav1.APIResourceList,
-	resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier,
-) ([]*kubernetesResource, error) {
+func (r *itemCollector) getGroupItems(log logrus.FieldLogger, group *metav1.APIResourceList, resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier) ([]*kubernetesResource, error) {
 	log = log.WithField("group", group.GroupVersion)
 
 	log.Infof("Getting items for group")
@@ -245,12 +109,11 @@ func (r *itemCollector) getGroupItems(
 	// Parse so we can check if this is the core group
 	gv, err := schema.ParseGroupVersion(group.GroupVersion)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error parsing GroupVersion %q",
-			group.GroupVersion)
+		return nil, errors.Wrapf(err, "error parsing GroupVersion %q", group.GroupVersion)
 	}
 	if gv.Group == "" {
-		// This is the core group, so make sure we process in the following order:
-		// pods, pvcs, pvs, everything else.
+		// This is the core group, so make sure we process in the following order: pods, pvcs, pvs,
+		// everything else.
 		sortCoreGroup(group)
 	}
 
@@ -258,8 +121,7 @@ func (r *itemCollector) getGroupItems(
 	for _, resource := range group.APIResources {
 		resourceItems, err := r.getResourceItems(log, gv, resource, resourceIDsMap)
 		if err != nil {
-			log.WithError(err).WithField("resource", resource.String()).
-				Error("Error getting items for resource")
+			log.WithError(err).WithField("resource", resource.String()).Error("Error getting items for resource")
 			continue
 		}
 
@@ -269,13 +131,8 @@ func (r *itemCollector) getGroupItems(
 	return items, nil
 }
 
-// sortResourcesByOrder sorts items by the names specified in "order".
-// Items are not in order will be put at the end in original order.
-func sortResourcesByOrder(
-	log logrus.FieldLogger,
-	items []*kubernetesResource,
-	order []string,
-) []*kubernetesResource {
+// sortResourcesByOrder sorts items by the names specified in "order".  Items are not in order will be put at the end in original order.
+func sortResourcesByOrder(log logrus.FieldLogger, items []*kubernetesResource, order []string) []*kubernetesResource {
 	if len(order) == 0 {
 		return items
 	}
@@ -320,10 +177,7 @@ func sortResourcesByOrder(
 }
 
 // getOrderedResourcesForType gets order of resourceType from orderResources.
-func getOrderedResourcesForType(
-	orderedResources map[string]string,
-	resourceType string,
-) []string {
+func getOrderedResourcesForType(orderedResources map[string]string, resourceType string) []string {
 	if orderedResources == nil {
 		return nil
 	}
@@ -338,25 +192,18 @@ func getOrderedResourcesForType(
 // getResourceItems collects all relevant items for a given group-version-resource.
 // If resourceIDsMap is supplied, the items will be pulled from here
 // rather than from the cluster and applying include/exclude rules.
-func (r *itemCollector) getResourceItems(
-	log logrus.FieldLogger,
-	gv schema.GroupVersion,
-	resource metav1.APIResource,
-	resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier,
-) ([]*kubernetesResource, error) {
+func (r *itemCollector) getResourceItems(log logrus.FieldLogger, gv schema.GroupVersion, resource metav1.APIResource, resourceIDsMap map[schema.GroupResource][]velero.ResourceIdentifier) ([]*kubernetesResource, error) {
 	log = log.WithField("resource", resource.Name)
 
 	log.Info("Getting items for resource")
 
 	var (
-		gvr = gv.WithResource(resource.Name)
-		gr  = gvr.GroupResource()
+		gvr           = gv.WithResource(resource.Name)
+		gr            = gvr.GroupResource()
+		clusterScoped = !resource.Namespaced
 	)
 
-	orders := getOrderedResourcesForType(
-		r.backupRequest.Backup.Spec.OrderedResources,
-		resource.Name,
-	)
+	orders := getOrderedResourcesForType(r.backupRequest.Backup.Spec.OrderedResources, resource.Name)
 	// Getting the preferred group version of this resource
 	preferredGVR, _, err := r.discoveryHelper.ResourceFor(gr.WithVersion(""))
 	if err != nil {
@@ -378,15 +225,7 @@ func (r *itemCollector) getResourceItems(
 					"name":      resourceID.Name,
 				},
 			).Infof("Getting item")
-			resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(
-				gv,
-				resource,
-				resourceID.Namespace,
-			)
-			if err != nil {
-				log.WithError(errors.WithStack(err)).Error("Error getting client for resource")
-				continue
-			}
+			resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(gv, resource, resourceID.Namespace)
 			unstructured, err := resourceClient.Get(resourceID.Name, metav1.GetOptions{})
 			if err != nil {
 				log.WithError(errors.WithStack(err)).Error("Error getting item")
@@ -417,8 +256,7 @@ func (r *itemCollector) getResourceItems(
 	}
 
 	if cohabitator, found := r.cohabitatingResources[resource.Name]; found {
-		if gv.Group == cohabitator.groupResource1.Group ||
-			gv.Group == cohabitator.groupResource2.Group {
+		if gv.Group == cohabitator.groupResource1.Group || gv.Group == cohabitator.groupResource2.Group {
 			if cohabitator.seen {
 				log.WithFields(
 					logrus.Fields{
@@ -432,21 +270,59 @@ func (r *itemCollector) getResourceItems(
 		}
 	}
 
-	// Handle namespace resource here.
-	// Namespace are filtered by namespace include/exclude filters,
-	// backup LabelSelectors and OrLabelSelectors are checked too.
-	if gr == kuberesource.Namespaces {
-		return r.collectNamespaces(
-			resource,
-			gv,
-			gr,
-			preferredGVR,
-			log,
-		)
-	}
-
-	clusterScoped := !resource.Namespaced
 	namespacesToList := getNamespacesToList(r.backupRequest.NamespaceIncludesExcludes)
+
+	// Check if we're backing up namespaces for a less-than-full backup.
+	// We enter this block if resource is Namespaces and the namespace list is either empty or contains
+	// an explicit namespace list. (We skip this block if the list contains "" since that indicates
+	// a full-cluster backup
+	if gr == kuberesource.Namespaces && (len(namespacesToList) == 0 || namespacesToList[0] != "") {
+		resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(gv, resource, "")
+		if err != nil {
+			log.WithError(err).Error("Error getting dynamic client")
+		} else {
+			var labelSelector labels.Selector
+			if r.backupRequest.Spec.LabelSelector != nil {
+				labelSelector, err = metav1.LabelSelectorAsSelector(r.backupRequest.Spec.LabelSelector)
+				if err != nil {
+					// This should never happen...
+					return nil, errors.Wrap(err, "invalid label selector")
+				}
+			}
+
+			var items []*kubernetesResource
+			for _, ns := range namespacesToList {
+				log = log.WithField("namespace", ns)
+				log.Info("Getting namespace")
+				unstructured, err := resourceClient.Get(ns, metav1.GetOptions{})
+				if err != nil {
+					log.WithError(errors.WithStack(err)).Error("Error getting namespace")
+					continue
+				}
+
+				labels := labels.Set(unstructured.GetLabels())
+				if labelSelector != nil && !labelSelector.Matches(labels) {
+					log.Info("Skipping namespace because it does not match the backup's label selector")
+					continue
+				}
+
+				path, err := r.writeToFile(unstructured)
+				if err != nil {
+					log.WithError(err).Error("Error writing item to file")
+					continue
+				}
+
+				items = append(items, &kubernetesResource{
+					groupResource: gr,
+					preferredGVR:  preferredGVR,
+					name:          ns,
+					path:          path,
+				})
+			}
+
+			return items, nil
+		}
+	}
 
 	// If we get here, we're backing up something other than namespaces
 	if clusterScoped {
@@ -456,15 +332,65 @@ func (r *itemCollector) getResourceItems(
 	var items []*kubernetesResource
 
 	for _, namespace := range namespacesToList {
-		unstructuredItems, err := r.listResourceByLabelsPerNamespace(
-			namespace, gr, gv, resource, log)
+		// List items from Kubernetes API
+		log = log.WithField("namespace", namespace)
+
+		resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(gv, resource, namespace)
 		if err != nil {
+			log.WithError(err).Error("Error getting dynamic client")
 			continue
 		}
+
+		var orLabelSelectors []string
+		if r.backupRequest.Spec.OrLabelSelectors != nil {
+			for _, s := range r.backupRequest.Spec.OrLabelSelectors {
+				orLabelSelectors = append(orLabelSelectors, metav1.FormatLabelSelector(s))
+			}
+		} else {
+			orLabelSelectors = []string{}
+		}
+
+		log.Info("Listing items")
+		unstructuredItems := make([]unstructured.Unstructured, 0)
+
+		// Listing items for orLabelSelectors
+		errListingForNS := false
+		for _, label := range orLabelSelectors {
+			unstructuredItems, err = r.listItemsForLabel(unstructuredItems, gr, label, resourceClient)
+			if err != nil {
+				errListingForNS = true
+			}
+		}
+
+		if errListingForNS {
+			log.WithError(err).Error("Error listing items")
+			continue
+		}
+
+		var labelSelector string
+		if selector := r.backupRequest.Spec.LabelSelector; selector != nil {
+			labelSelector = metav1.FormatLabelSelector(selector)
+		}
+
+		// Listing items for labelSelector (singular)
+		if len(orLabelSelectors) == 0 {
+			unstructuredItems, err = r.listItemsForLabel(unstructuredItems, gr, labelSelector, resourceClient)
+			if err != nil {
+				log.WithError(err).Error("Error listing items")
+				continue
+			}
+		}
+
+		log.Infof("Retrieved %d items", len(unstructuredItems))
 
 		// Collect items in included Namespaces
 		for i := range unstructuredItems {
 			item := &unstructuredItems[i]
+
+			if gr == kuberesource.Namespaces && !r.backupRequest.NamespaceIncludesExcludes.ShouldInclude(item.GetName()) {
+				log.WithField("name", item.GetName()).Info("Skipping namespace because it's excluded")
+				continue
+			}
 
 			path, err := r.writeToFile(item)
 			if err != nil {
@@ -479,84 +405,13 @@ func (r *itemCollector) getResourceItems(
 				name:          item.GetName(),
 				path:          path,
 			})
-
-			if item.GetNamespace() != "" {
-				log.Debugf("Track namespace %s in nsTracker", item.GetNamespace())
-				r.nsTracker.track(item.GetNamespace())
-			}
 		}
 	}
-
 	if len(orders) > 0 {
 		items = sortResourcesByOrder(r.log, items, orders)
 	}
 
 	return items, nil
-}
-
-func (r *itemCollector) listResourceByLabelsPerNamespace(
-	namespace string,
-	gr schema.GroupResource,
-	gv schema.GroupVersion,
-	resource metav1.APIResource,
-	logger logrus.FieldLogger,
-) ([]unstructured.Unstructured, error) {
-	// List items from Kubernetes API
-	logger = logger.WithField("namespace", namespace)
-
-	resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(gv, resource, namespace)
-	if err != nil {
-		logger.WithError(err).Error("Error getting dynamic client")
-		return nil, err
-	}
-
-	var orLabelSelectors []string
-	if r.backupRequest.Spec.OrLabelSelectors != nil {
-		for _, s := range r.backupRequest.Spec.OrLabelSelectors {
-			orLabelSelectors = append(orLabelSelectors, metav1.FormatLabelSelector(s))
-		}
-	} else {
-		orLabelSelectors = []string{}
-	}
-
-	logger.Info("Listing items")
-	unstructuredItems := make([]unstructured.Unstructured, 0)
-
-	// Listing items for orLabelSelectors
-	errListingForNS := false
-	for _, label := range orLabelSelectors {
-		unstructuredItems, err = r.listItemsForLabel(unstructuredItems, gr, label, resourceClient)
-		if err != nil {
-			errListingForNS = true
-		}
-	}
-
-	if errListingForNS {
-		logger.WithError(err).Error("Error listing items")
-		return nil, err
-	}
-
-	var labelSelector string
-	if selector := r.backupRequest.Spec.LabelSelector; selector != nil {
-		labelSelector = metav1.FormatLabelSelector(selector)
-	}
-
-	// Listing items for labelSelector (singular)
-	if len(orLabelSelectors) == 0 {
-		unstructuredItems, err = r.listItemsForLabel(
-			unstructuredItems,
-			gr,
-			labelSelector,
-			resourceClient,
-		)
-		if err != nil {
-			logger.WithError(err).Error("Error listing items")
-			return nil, err
-		}
-	}
-
-	logger.Infof("Retrieved %d items", len(unstructuredItems))
-	return unstructuredItems, nil
 }
 
 func (r *itemCollector) writeToFile(item *unstructured.Unstructured) (string, error) {
@@ -655,11 +510,7 @@ func newCohabitatingResource(resource, group1, group2 string) *cohabitatingResou
 }
 
 // function to process pager client calls when the pageSize is specified
-func (r *itemCollector) processPagerClientCalls(
-	gr schema.GroupResource,
-	label string,
-	resourceClient client.Dynamic,
-) (runtime.Object, error) {
+func (r *itemCollector) processPagerClientCalls(gr schema.GroupResource, label string, resourceClient client.Dynamic) (runtime.Object, error) {
 	// If limit is positive, use a pager to split list over multiple requests
 	// Use Velero's dynamic list function instead of the default
 	listPager := pager.New(pager.SimplePageFunc(func(opts metav1.ListOptions) (runtime.Object, error) {
@@ -683,12 +534,7 @@ func (r *itemCollector) processPagerClientCalls(
 	return list, nil
 }
 
-func (r *itemCollector) listItemsForLabel(
-	unstructuredItems []unstructured.Unstructured,
-	gr schema.GroupResource,
-	label string,
-	resourceClient client.Dynamic,
-) ([]unstructured.Unstructured, error) {
+func (r *itemCollector) listItemsForLabel(unstructuredItems []unstructured.Unstructured, gr schema.GroupResource, label string, resourceClient client.Dynamic) ([]unstructured.Unstructured, error) {
 	if r.pageSize > 0 {
 		// process pager client calls
 		list, err := r.processPagerClientCalls(gr, label, resourceClient)
@@ -699,8 +545,7 @@ func (r *itemCollector) listItemsForLabel(
 		err = meta.EachListItem(list, func(object runtime.Object) error {
 			u, ok := object.(*unstructured.Unstructured)
 			if !ok {
-				r.log.WithError(errors.WithStack(fmt.Errorf("expected *unstructured.Unstructured but got %T", u))).
-					Error("unable to understand entry in the list")
+				r.log.WithError(errors.WithStack(fmt.Errorf("expected *unstructured.Unstructured but got %T", u))).Error("unable to understand entry in the list")
 				return fmt.Errorf("expected *unstructured.Unstructured but got %T", u)
 			}
 			unstructuredItems = append(unstructuredItems, *u)
@@ -719,76 +564,4 @@ func (r *itemCollector) listItemsForLabel(
 		unstructuredItems = append(unstructuredItems, unstructuredList.Items...)
 	}
 	return unstructuredItems, nil
-}
-
-// collectNamespaces process namespace resource according to namespace filters.
-func (r *itemCollector) collectNamespaces(
-	resource metav1.APIResource,
-	gv schema.GroupVersion,
-	gr schema.GroupResource,
-	preferredGVR schema.GroupVersionResource,
-	log logrus.FieldLogger,
-) ([]*kubernetesResource, error) {
-	resourceClient, err := r.dynamicFactory.ClientForGroupVersionResource(gv, resource, "")
-	if err != nil {
-		log.WithError(err).Error("Error getting dynamic client")
-		return nil, errors.WithStack(err)
-	}
-
-	unstructuredList, err := resourceClient.List(metav1.ListOptions{})
-	if err != nil {
-		log.WithError(errors.WithStack(err)).Error("error list namespaces")
-		return nil, errors.WithStack(err)
-	}
-
-	var singleSelector labels.Selector
-	var orSelectors []labels.Selector
-
-	if r.backupRequest.Backup.Spec.LabelSelector != nil {
-		var err error
-		singleSelector, err = metav1.LabelSelectorAsSelector(
-			r.backupRequest.Backup.Spec.LabelSelector)
-		if err != nil {
-			log.WithError(err).Errorf("Fail to convert backup LabelSelector %s into selector.",
-				metav1.FormatLabelSelector(r.backupRequest.Backup.Spec.LabelSelector))
-		}
-	}
-	if r.backupRequest.Backup.Spec.OrLabelSelectors != nil {
-		for _, ls := range r.backupRequest.Backup.Spec.OrLabelSelectors {
-			orSelector, err := metav1.LabelSelectorAsSelector(ls)
-			if err != nil {
-				log.WithError(err).Errorf("Fail to convert backup OrLabelSelector %s into selector.",
-					metav1.FormatLabelSelector(ls))
-			}
-			orSelectors = append(orSelectors, orSelector)
-		}
-	}
-
-	r.nsTracker.init(
-		unstructuredList.Items,
-		singleSelector,
-		orSelectors,
-		r.backupRequest.NamespaceIncludesExcludes,
-		log,
-	)
-
-	var items []*kubernetesResource
-
-	for index := range unstructuredList.Items {
-		path, err := r.writeToFile(&unstructuredList.Items[index])
-		if err != nil {
-			log.WithError(err).Errorf("Error writing item %s to file",
-				unstructuredList.Items[index].GetName())
-			continue
-		}
-
-		items = append(items, &kubernetesResource{
-			groupResource: gr,
-			preferredGVR:  preferredGVR,
-			name:          unstructuredList.Items[index].GetName(),
-			path:          path,
-		})
-	}
-
-	return items, nil
 }

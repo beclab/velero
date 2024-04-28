@@ -17,7 +17,6 @@ limitations under the License.
 package install
 
 import (
-	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,33 +27,21 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	v1crds "github.com/vmware-tanzu/velero/config/crd/v1/crds"
-	v2alpha1crds "github.com/vmware-tanzu/velero/config/crd/v2alpha1/crds"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	"github.com/vmware-tanzu/velero/pkg/repository"
-	"github.com/vmware-tanzu/velero/pkg/util/logging"
 )
 
-const (
-	defaultServiceAccountName = "velero"
-	podSecurityLevel          = "privileged"
-	podSecurityVersion        = "latest"
-)
+const defaultServiceAccountName = "velero"
 
 var (
-	// default values for Velero server pod resource request/limit
-	DefaultVeleroPodCPURequest = "500m"
-	DefaultVeleroPodMemRequest = "128Mi"
-	DefaultVeleroPodCPULimit   = "1000m"
-	DefaultVeleroPodMemLimit   = "512Mi"
-
-	// default values for node-agent pod resource request/limit,
-	// "0" means no request/limit is set, so as to make the QoS as BestEffort
-	DefaultNodeAgentPodCPURequest = "0"
-	DefaultNodeAgentPodMemRequest = "0"
-	DefaultNodeAgentPodCPULimit   = "0"
-	DefaultNodeAgentPodMemLimit   = "0"
-
-	DefaultVeleroNamespace = "velero"
+	DefaultVeleroPodCPURequest    = "500m"
+	DefaultVeleroPodMemRequest    = "128Mi"
+	DefaultVeleroPodCPULimit      = "1000m"
+	DefaultVeleroPodMemLimit      = "512Mi"
+	DefaultNodeAgentPodCPURequest = "500m"
+	DefaultNodeAgentPodMemRequest = "512Mi"
+	DefaultNodeAgentPodCPULimit   = "1000m"
+	DefaultNodeAgentPodMemLimit   = "1Gi"
+	DefaultVeleroNamespace        = "velero"
 )
 
 func Labels() map[string]string {
@@ -159,12 +146,8 @@ func Namespace(namespace string) *corev1.Namespace {
 		},
 	}
 
-	ns.Labels["pod-security.kubernetes.io/enforce"] = podSecurityLevel
-	ns.Labels["pod-security.kubernetes.io/enforce-version"] = podSecurityVersion
-	ns.Labels["pod-security.kubernetes.io/audit"] = podSecurityLevel
-	ns.Labels["pod-security.kubernetes.io/audit-version"] = podSecurityVersion
-	ns.Labels["pod-security.kubernetes.io/warn"] = podSecurityLevel
-	ns.Labels["pod-security.kubernetes.io/warn-version"] = podSecurityVersion
+	ns.Labels["pod-security.kubernetes.io/enforce"] = "privileged"
+	ns.Labels["pod-security.kubernetes.io/enforce-version"] = "latest"
 
 	return ns
 }
@@ -247,25 +230,17 @@ type VeleroOptions struct {
 	SecretData                      []byte
 	RestoreOnly                     bool
 	UseNodeAgent                    bool
-	PrivilegedNodeAgent             bool
 	UseVolumeSnapshots              bool
 	BSLConfig                       map[string]string
 	VSLConfig                       map[string]string
 	DefaultRepoMaintenanceFrequency time.Duration
 	GarbageCollectionFrequency      time.Duration
-	PodVolumeOperationTimeout       time.Duration
 	Plugins                         []string
 	NoDefaultBackupLocation         bool
 	CACertData                      []byte
 	Features                        []string
 	DefaultVolumesToFsBackup        bool
 	UploaderType                    string
-	DefaultSnapshotMoveData         bool
-	DisableInformerCache            bool
-	ScheduleSkipImmediately         bool
-	FormatFlag                      *logging.FormatFlag
-	LogLevelFlag                    *logging.LevelFlag
-	MaintenanceCfg                  repository.MaintenanceConfig
 }
 
 func AllCRDs() *unstructured.UnstructuredList {
@@ -275,16 +250,7 @@ func AllCRDs() *unstructured.UnstructuredList {
 
 	for _, crd := range v1crds.CRDs {
 		crd.SetLabels(Labels())
-		if err := appendUnstructured(resources, crd); err != nil {
-			fmt.Printf("error appending v1 CRD %s: %s\n", crd.GetName(), err.Error())
-		}
-	}
-
-	for _, crd := range v2alpha1crds.CRDs {
-		crd.SetLabels(Labels())
-		if err := appendUnstructured(resources, crd); err != nil {
-			fmt.Printf("error appending v2alpha1 CRD %s: %s\n", crd.GetName(), err.Error())
-		}
+		appendUnstructured(resources, crd)
 	}
 
 	return resources
@@ -296,44 +262,32 @@ func AllResources(o *VeleroOptions) *unstructured.UnstructuredList {
 	resources := AllCRDs()
 
 	ns := Namespace(o.Namespace)
-	if err := appendUnstructured(resources, ns); err != nil {
-		fmt.Printf("error appending Namespace %s: %s\n", ns.GetName(), err.Error())
-	}
+	appendUnstructured(resources, ns)
 
 	serviceAccountName := defaultServiceAccountName
 	if o.ServiceAccountName == "" {
 		crb := ClusterRoleBinding(o.Namespace)
-		if err := appendUnstructured(resources, crb); err != nil {
-			fmt.Printf("error appending ClusterRoleBinding %s: %s\n", crb.GetName(), err.Error())
-		}
+		appendUnstructured(resources, crb)
 		sa := ServiceAccount(o.Namespace, o.ServiceAccountAnnotations)
-		if err := appendUnstructured(resources, sa); err != nil {
-			fmt.Printf("error appending ServiceAccount %s: %s\n", sa.GetName(), err.Error())
-		}
+		appendUnstructured(resources, sa)
 	} else {
 		serviceAccountName = o.ServiceAccountName
 	}
 
 	if o.SecretData != nil {
 		sec := Secret(o.Namespace, o.SecretData)
-		if err := appendUnstructured(resources, sec); err != nil {
-			fmt.Printf("error appending Secret %s: %s\n", sec.GetName(), err.Error())
-		}
+		appendUnstructured(resources, sec)
 	}
 
 	if !o.NoDefaultBackupLocation {
 		bsl := BackupStorageLocation(o.Namespace, o.ProviderName, o.Bucket, o.Prefix, o.BSLConfig, o.CACertData)
-		if err := appendUnstructured(resources, bsl); err != nil {
-			fmt.Printf("error appending BackupStorageLocation %s: %s\n", bsl.GetName(), err.Error())
-		}
+		appendUnstructured(resources, bsl)
 	}
 
 	// A snapshot location may not be desirable for users relying on pod volume backup/restore
 	if o.UseVolumeSnapshots {
 		vsl := VolumeSnapshotLocation(o.Namespace, o.ProviderName, o.VSLConfig)
-		if err := appendUnstructured(resources, vsl); err != nil {
-			fmt.Printf("error appending VolumeSnapshotLocation %s: %s\n", vsl.GetName(), err.Error())
-		}
+		appendUnstructured(resources, vsl)
 	}
 
 	secretPresent := o.SecretData != nil
@@ -347,10 +301,7 @@ func AllResources(o *VeleroOptions) *unstructured.UnstructuredList {
 		WithDefaultRepoMaintenanceFrequency(o.DefaultRepoMaintenanceFrequency),
 		WithServiceAccountName(serviceAccountName),
 		WithGarbageCollectionFrequency(o.GarbageCollectionFrequency),
-		WithPodVolumeOperationTimeout(o.PodVolumeOperationTimeout),
 		WithUploaderType(o.UploaderType),
-		WithScheduleSkipImmediately(o.ScheduleSkipImmediately),
-		WithMaintenanceConfig(o.MaintenanceCfg),
 	}
 
 	if len(o.Features) > 0 {
@@ -369,19 +320,9 @@ func AllResources(o *VeleroOptions) *unstructured.UnstructuredList {
 		deployOpts = append(deployOpts, WithDefaultVolumesToFsBackup())
 	}
 
-	if o.DefaultSnapshotMoveData {
-		deployOpts = append(deployOpts, WithDefaultSnapshotMoveData())
-	}
-
-	if o.DisableInformerCache {
-		deployOpts = append(deployOpts, WithDisableInformerCache())
-	}
-
 	deploy := Deployment(o.Namespace, deployOpts...)
 
-	if err := appendUnstructured(resources, deploy); err != nil {
-		fmt.Printf("error appending Deployment %s: %s\n", deploy.GetName(), err.Error())
-	}
+	appendUnstructured(resources, deploy)
 
 	if o.UseNodeAgent {
 		dsOpts := []podTemplateOption{
@@ -395,13 +336,8 @@ func AllResources(o *VeleroOptions) *unstructured.UnstructuredList {
 		if len(o.Features) > 0 {
 			dsOpts = append(dsOpts, WithFeatures(o.Features))
 		}
-		if o.PrivilegedNodeAgent {
-			dsOpts = append(dsOpts, WithPrivilegedNodeAgent())
-		}
 		ds := DaemonSet(o.Namespace, dsOpts...)
-		if err := appendUnstructured(resources, ds); err != nil {
-			fmt.Printf("error appending DaemonSet %s: %s\n", ds.GetName(), err.Error())
-		}
+		appendUnstructured(resources, ds)
 	}
 
 	return resources

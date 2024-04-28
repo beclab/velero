@@ -27,7 +27,6 @@ import (
 
 	"github.com/vmware-tanzu/velero/internal/velero"
 	"github.com/vmware-tanzu/velero/pkg/builder"
-	"github.com/vmware-tanzu/velero/pkg/repository"
 )
 
 type podTemplateOption func(*podTemplateConfig)
@@ -42,17 +41,11 @@ type podTemplateConfig struct {
 	withSecret                      bool
 	defaultRepoMaintenanceFrequency time.Duration
 	garbageCollectionFrequency      time.Duration
-	podVolumeOperationTimeout       time.Duration
 	plugins                         []string
 	features                        []string
 	defaultVolumesToFsBackup        bool
 	serviceAccountName              string
 	uploaderType                    string
-	defaultSnapshotMoveData         bool
-	privilegedNodeAgent             bool
-	disableInformerCache            bool
-	scheduleSkipImmediately         bool
-	maintenanceConfig               repository.MaintenanceConfig
 }
 
 func WithImage(image string) podTemplateOption {
@@ -119,12 +112,6 @@ func WithGarbageCollectionFrequency(val time.Duration) podTemplateOption {
 	}
 }
 
-func WithPodVolumeOperationTimeout(val time.Duration) podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.podVolumeOperationTimeout = val
-	}
-}
-
 func WithPlugins(plugins []string) podTemplateOption {
 	return func(c *podTemplateConfig) {
 		c.plugins = plugins
@@ -149,39 +136,9 @@ func WithDefaultVolumesToFsBackup() podTemplateOption {
 	}
 }
 
-func WithDefaultSnapshotMoveData() podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.defaultSnapshotMoveData = true
-	}
-}
-
-func WithDisableInformerCache() podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.disableInformerCache = true
-	}
-}
-
 func WithServiceAccountName(sa string) podTemplateOption {
 	return func(c *podTemplateConfig) {
 		c.serviceAccountName = sa
-	}
-}
-
-func WithPrivilegedNodeAgent() podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.privilegedNodeAgent = true
-	}
-}
-
-func WithScheduleSkipImmediately(b bool) podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.scheduleSkipImmediately = b
-	}
-}
-
-func WithMaintenanceConfig(config repository.MaintenanceConfig) podTemplateOption {
-	return func(c *podTemplateConfig) {
-		c.maintenanceConfig = config
 	}
 }
 
@@ -199,6 +156,7 @@ func Deployment(namespace string, opts ...podTemplateOption) *appsv1.Deployment 
 	imageParts := strings.Split(c.image, ":")
 	if len(imageParts) == 2 && imageParts[1] != "latest" {
 		pullPolicy = corev1.PullIfNotPresent
+
 	}
 
 	args := []string{"server"}
@@ -208,18 +166,6 @@ func Deployment(namespace string, opts ...podTemplateOption) *appsv1.Deployment 
 
 	if c.defaultVolumesToFsBackup {
 		args = append(args, "--default-volumes-to-fs-backup=true")
-	}
-
-	if c.defaultSnapshotMoveData {
-		args = append(args, "--default-snapshot-move-data=true")
-	}
-
-	if c.disableInformerCache {
-		args = append(args, "--disable-informer-cache=true")
-	}
-
-	if c.scheduleSkipImmediately {
-		args = append(args, "--schedule-skip-immediately=true")
 	}
 
 	if len(c.uploaderType) > 0 {
@@ -236,30 +182,6 @@ func Deployment(namespace string, opts ...podTemplateOption) *appsv1.Deployment 
 
 	if c.garbageCollectionFrequency > 0 {
 		args = append(args, fmt.Sprintf("--garbage-collection-frequency=%v", c.garbageCollectionFrequency))
-	}
-
-	if c.podVolumeOperationTimeout > 0 {
-		args = append(args, fmt.Sprintf("--fs-backup-timeout=%v", c.podVolumeOperationTimeout))
-	}
-
-	if c.maintenanceConfig.KeepLatestMaitenanceJobs > 0 {
-		args = append(args, fmt.Sprintf("--keep-latest-maintenance-jobs=%d", c.maintenanceConfig.KeepLatestMaitenanceJobs))
-	}
-
-	if c.maintenanceConfig.CPULimit != "" {
-		args = append(args, fmt.Sprintf("--maintenance-job-cpu-limit=%s", c.maintenanceConfig.CPULimit))
-	}
-
-	if c.maintenanceConfig.CPURequest != "" {
-		args = append(args, fmt.Sprintf("--maintenance-job-cpu-request=%s", c.maintenanceConfig.CPURequest))
-	}
-
-	if c.maintenanceConfig.MemLimit != "" {
-		args = append(args, fmt.Sprintf("--maintenance-job-mem-limit=%s", c.maintenanceConfig.MemLimit))
-	}
-
-	if c.maintenanceConfig.MemRequest != "" {
-		args = append(args, fmt.Sprintf("--maintenance-job-mem-request=%s", c.maintenanceConfig.MemRequest))
 	}
 
 	deployment := &appsv1.Deployment{
@@ -386,6 +308,7 @@ func Deployment(namespace string, opts ...podTemplateOption) *appsv1.Deployment 
 			container := *builder.ForPluginContainer(image, pullPolicy).Result()
 			deployment.Spec.Template.Spec.InitContainers = append(deployment.Spec.Template.Spec.InitContainers, container)
 		}
+
 	}
 
 	return deployment

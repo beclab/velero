@@ -28,11 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	veleroclient "github.com/vmware-tanzu/velero/pkg/client"
 )
 
-// Ensurer ensures that backup repositories are created and ready.
-type Ensurer struct {
+// RepositoryEnsurer ensures that backup repositories are created and ready.
+type RepositoryEnsurer struct {
 	log        logrus.FieldLogger
 	repoClient client.Client
 
@@ -43,8 +42,8 @@ type Ensurer struct {
 	resourceTimeout time.Duration
 }
 
-func NewEnsurer(repoClient client.Client, log logrus.FieldLogger, resourceTimeout time.Duration) *Ensurer {
-	return &Ensurer{
+func NewRepositoryEnsurer(repoClient client.Client, log logrus.FieldLogger, resourceTimeout time.Duration) *RepositoryEnsurer {
+	return &RepositoryEnsurer{
 		log:             log,
 		repoClient:      repoClient,
 		repoLocks:       make(map[BackupRepositoryKey]*sync.Mutex),
@@ -52,7 +51,7 @@ func NewEnsurer(repoClient client.Client, log logrus.FieldLogger, resourceTimeou
 	}
 }
 
-func (r *Ensurer) EnsureRepo(ctx context.Context, namespace, volumeNamespace, backupLocation, repositoryType string) (*velerov1api.BackupRepository, error) {
+func (r *RepositoryEnsurer) EnsureRepo(ctx context.Context, namespace, volumeNamespace, backupLocation, repositoryType string) (*velerov1api.BackupRepository, error) {
 	if volumeNamespace == "" || backupLocation == "" || repositoryType == "" {
 		return nil, errors.Errorf("wrong parameters, namespace %q, backup storage location %q, repository type %q", volumeNamespace, backupLocation, repositoryType)
 	}
@@ -81,21 +80,23 @@ func (r *Ensurer) EnsureRepo(ctx context.Context, namespace, volumeNamespace, ba
 		log.Debug("Released lock")
 	}()
 
-	_, err := GetBackupRepository(ctx, r.repoClient, namespace, backupRepoKey, false)
+	repo, err := GetBackupRepository(ctx, r.repoClient, namespace, backupRepoKey, true)
 	if err == nil {
-		log.Info("Founding existing repo")
-		return r.waitBackupRepository(ctx, namespace, backupRepoKey)
-	} else if isBackupRepositoryNotFoundError(err) {
-		log.Info("No repository found, creating one")
+		log.Debug("Ready repository found")
+		return repo, nil
+	}
 
-		// no repo found: create one and wait for it to be ready
-		return r.createBackupRepositoryAndWait(ctx, namespace, backupRepoKey)
-	} else {
+	if !isBackupRepositoryNotFoundError(err) {
 		return nil, errors.WithStack(err)
 	}
+
+	log.Debug("No repository found, creating one")
+
+	// no repo found: create one and wait for it to be ready
+	return r.createBackupRepositoryAndWait(ctx, namespace, backupRepoKey)
 }
 
-func (r *Ensurer) repoLock(key BackupRepositoryKey) *sync.Mutex {
+func (r *RepositoryEnsurer) repoLock(key BackupRepositoryKey) *sync.Mutex {
 	r.repoLocksMu.Lock()
 	defer r.repoLocksMu.Unlock()
 
@@ -106,16 +107,12 @@ func (r *Ensurer) repoLock(key BackupRepositoryKey) *sync.Mutex {
 	return r.repoLocks[key]
 }
 
-func (r *Ensurer) createBackupRepositoryAndWait(ctx context.Context, namespace string, backupRepoKey BackupRepositoryKey) (*velerov1api.BackupRepository, error) {
-	toCreate := NewBackupRepository(namespace, backupRepoKey)
-	if err := veleroclient.CreateRetryGenerateName(r.repoClient, ctx, toCreate); err != nil {
+func (r *RepositoryEnsurer) createBackupRepositoryAndWait(ctx context.Context, namespace string, backupRepoKey BackupRepositoryKey) (*velerov1api.BackupRepository, error) {
+	toCreate := newBackupRepository(namespace, backupRepoKey)
+	if err := r.repoClient.Create(ctx, toCreate, &client.CreateOptions{}); err != nil {
 		return nil, errors.Wrap(err, "unable to create backup repository resource")
 	}
 
-	return r.waitBackupRepository(ctx, namespace, backupRepoKey)
-}
-
-func (r *Ensurer) waitBackupRepository(ctx context.Context, namespace string, backupRepoKey BackupRepositoryKey) (*velerov1api.BackupRepository, error) {
 	var repo *velerov1api.BackupRepository
 	checkFunc := func(ctx context.Context) (bool, error) {
 		found, err := GetBackupRepository(ctx, r.repoClient, namespace, backupRepoKey, true)
@@ -129,10 +126,10 @@ func (r *Ensurer) waitBackupRepository(ctx context.Context, namespace string, ba
 		}
 	}
 
-	err := wait.PollUntilContextTimeout(ctx, time.Millisecond*500, r.resourceTimeout, true, checkFunc)
+	err := wait.PollWithContext(ctx, time.Millisecond*500, r.resourceTimeout, checkFunc)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to wait BackupRepository")
+	} else {
+		return repo, nil
 	}
-
-	return repo, nil
 }

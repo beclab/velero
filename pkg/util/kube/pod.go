@@ -16,17 +16,8 @@ limitations under the License.
 package kube
 
 import (
-	"context"
-	"fmt"
-	"time"
-
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	corev1api "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
-	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 // IsPodRunning does a well-rounded check to make sure the specified pod is running stably.
@@ -71,72 +62,4 @@ func isPodScheduledInStatus(pod *corev1api.Pod, statusCheckFunc func(*corev1api.
 	}
 
 	return nil
-}
-
-// DeletePodIfAny deletes a pod by name if it exists, and log an error when the deletion fails
-func DeletePodIfAny(ctx context.Context, podGetter corev1client.CoreV1Interface, podName string, podNamespace string, log logrus.FieldLogger) {
-	err := podGetter.Pods(podNamespace).Delete(ctx, podName, metav1.DeleteOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.WithError(err).Debugf("Abort deleting pod, it doesn't exist %s/%s", podNamespace, podName)
-		} else {
-			log.WithError(err).Errorf("Failed to delete pod %s/%s", podNamespace, podName)
-		}
-	}
-}
-
-// EnsureDeletePod asserts the existence of a pod by name, deletes it and waits for its disappearance and returns errors on any failure
-func EnsureDeletePod(ctx context.Context, podGetter corev1client.CoreV1Interface, pod string, namespace string, timeout time.Duration) error {
-	err := podGetter.Pods(namespace).Delete(ctx, pod, metav1.DeleteOptions{})
-	if err != nil {
-		return errors.Wrapf(err, "error to delete pod %s", pod)
-	}
-
-	err = wait.PollUntilContextTimeout(ctx, waitInternal, timeout, true, func(ctx context.Context) (bool, error) {
-		_, err := podGetter.Pods(namespace).Get(ctx, pod, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
-			}
-
-			return false, errors.Wrapf(err, "error to get pod %s", pod)
-		}
-
-		return false, nil
-	})
-
-	if err != nil {
-		return errors.Wrapf(err, "error to assure pod is deleted, %s", pod)
-	}
-
-	return nil
-}
-
-// IsPodUnrecoverable checks if the pod is in an abnormal state and could not be recovered
-// It could not cover all the cases but we could add more cases in the future
-func IsPodUnrecoverable(pod *corev1api.Pod, log logrus.FieldLogger) (bool, string) {
-	// Check the Phase field
-	if pod.Status.Phase == corev1api.PodFailed || pod.Status.Phase == corev1api.PodUnknown {
-		log.Warnf("Pod is in abnormal state %s", pod.Status.Phase)
-		return true, fmt.Sprintf("Pod is in abnormal state %s", pod.Status.Phase)
-	}
-
-	if pod.Status.Phase == corev1api.PodPending && len(pod.Status.Conditions) > 0 {
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == corev1api.PodScheduled && condition.Reason == "Unschedulable" {
-				log.Warnf("Pod is unschedulable %s", condition.Message)
-				return true, fmt.Sprintf("Pod is unschedulable: %s", condition.Message)
-			}
-		}
-	}
-
-	// Check the Status field
-	for _, containerStatus := range pod.Status.ContainerStatuses {
-		// If the container's image state is ImagePullBackOff, it indicates an image pull failure
-		if containerStatus.State.Waiting != nil && (containerStatus.State.Waiting.Reason == "ImagePullBackOff" || containerStatus.State.Waiting.Reason == "ErrImageNeverPull") {
-			log.Warnf("Container %s in Pod %s/%s is in pull image failed with reason %s", containerStatus.Name, pod.Namespace, pod.Name, containerStatus.State.Waiting.Reason)
-			return true, fmt.Sprintf("Container %s in Pod %s/%s is in pull image failed with reason %s", containerStatus.Name, pod.Namespace, pod.Name, containerStatus.State.Waiting.Reason)
-		}
-	}
-	return false, ""
 }

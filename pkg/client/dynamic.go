@@ -18,7 +18,6 @@ package client
 
 import (
 	"context"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -26,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/dynamic/dynamicinformer"
 )
 
 // DynamicFactory contains methods for retrieving dynamic clients for GroupVersionResources and
@@ -35,8 +33,6 @@ type DynamicFactory interface {
 	// ClientForGroupVersionResource returns a Dynamic client for the given group/version
 	// and resource for the given namespace.
 	ClientForGroupVersionResource(gv schema.GroupVersion, resource metav1.APIResource, namespace string) (Dynamic, error)
-	// DynamicSharedInformerFactory returns a DynamicSharedInformerFactory.
-	DynamicSharedInformerFactory() dynamicinformer.DynamicSharedInformerFactory
 }
 
 // dynamicFactory implements DynamicFactory.
@@ -53,10 +49,6 @@ func (f *dynamicFactory) ClientForGroupVersionResource(gv schema.GroupVersion, r
 	return &dynamicResourceClient{
 		resourceClient: f.dynamicClient.Resource(gv.WithResource(resource.Name)).Namespace(namespace),
 	}, nil
-}
-
-func (f *dynamicFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSharedInformerFactory {
-	return dynamicinformer.NewDynamicSharedInformerFactory(f.dynamicClient, time.Minute)
 }
 
 // Creator creates an object.

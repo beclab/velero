@@ -25,15 +25,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
-	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
-	"github.com/vmware-tanzu/velero/pkg/builder"
+	"github.com/vmware-tanzu/velero/pkg/backup"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/cmd"
 	"github.com/vmware-tanzu/velero/pkg/cmd/cli"
-	"github.com/vmware-tanzu/velero/pkg/cmd/util/confirm"
-	"github.com/vmware-tanzu/velero/pkg/label"
 )
 
 // NewDeleteCommand creates a new command that deletes a backup.
@@ -71,7 +68,7 @@ func NewDeleteCommand(f client.Factory, use string) *cobra.Command {
 
 // Run performs the delete backup operation.
 func Run(o *cli.DeleteOptions) error {
-	if !o.Confirm && !confirm.GetConfirmation() {
+	if !o.Confirm && !cli.GetConfirmation() {
 		// Don't do anything unless we get confirmation
 		return nil
 	}
@@ -85,8 +82,7 @@ func Run(o *cli.DeleteOptions) error {
 	switch {
 	case len(o.Names) > 0:
 		for _, name := range o.Names {
-			backup := new(velerov1api.Backup)
-			err := o.Client.Get(context.TODO(), controllerclient.ObjectKey{Namespace: o.Namespace, Name: name}, backup)
+			backup, err := o.Client.VeleroV1().Backups(o.Namespace).Get(context.TODO(), name, metav1.GetOptions{})
 			if err != nil {
 				errs = append(errs, errors.WithStack(err))
 				continue
@@ -95,22 +91,17 @@ func Run(o *cli.DeleteOptions) error {
 			backups = append(backups, backup)
 		}
 	default:
-		selector := labels.Everything()
+		selector := labels.Everything().String()
 		if o.Selector.LabelSelector != nil {
-			convertedSelector, err := metav1.LabelSelectorAsSelector(o.Selector.LabelSelector)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			selector = convertedSelector
+			selector = o.Selector.String()
 		}
 
-		backupList := new(velerov1api.BackupList)
-		err := o.Client.List(context.TODO(), backupList, &controllerclient.ListOptions{LabelSelector: selector, Namespace: o.Namespace})
+		res, err := o.Client.VeleroV1().Backups(o.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: selector})
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		for i := range backupList.Items {
-			backups = append(backups, &backupList.Items[i])
+		for i := range res.Items {
+			backups = append(backups, &res.Items[i])
 		}
 	}
 
@@ -121,11 +112,9 @@ func Run(o *cli.DeleteOptions) error {
 
 	// create a backup deletion request for each
 	for _, b := range backups {
-		deleteRequest := builder.ForDeleteBackupRequest(o.Namespace, "").BackupName(b.Name).
-			ObjectMeta(builder.WithLabels(velerov1api.BackupNameLabel, label.GetValidName(b.Name),
-				velerov1api.BackupUIDLabel, string(b.UID)), builder.WithGenerateName(b.Name+"-")).Result()
+		deleteRequest := backup.NewDeleteBackupRequest(b.Name, string(b.UID))
 
-		if err := client.CreateRetryGenerateName(o.Client, context.TODO(), deleteRequest); err != nil {
+		if _, err := o.Client.VeleroV1().DeleteBackupRequests(o.Namespace).Create(context.TODO(), deleteRequest, metav1.CreateOptions{}); err != nil {
 			errs = append(errs, err)
 			continue
 		}

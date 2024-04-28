@@ -1,18 +1,3 @@
-/*
-Copyright The Velero Contributors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package resourcepolicies
 
 import (
@@ -47,7 +32,6 @@ type structuredVolume struct {
 	storageClass string
 	nfs          *nFSVolumeSource
 	csi          *csiVolumeSource
-	volumeType   SupportedVolume
 }
 
 func (s *structuredVolume) parsePV(pv *corev1api.PersistentVolume) {
@@ -62,8 +46,6 @@ func (s *structuredVolume) parsePV(pv *corev1api.PersistentVolume) {
 	if csi != nil {
 		s.csi = &csiVolumeSource{Driver: csi.Driver}
 	}
-
-	s.volumeType = getVolumeTypeFromPV(pv)
 }
 
 func (s *structuredVolume) parsePodVolume(vol *corev1api.Volume) {
@@ -76,8 +58,6 @@ func (s *structuredVolume) parsePodVolume(vol *corev1api.Volume) {
 	if csi != nil {
 		s.csi = &csiVolumeSource{Driver: csi.Driver}
 	}
-
-	s.volumeType = getVolumeTypeFromVolume(vol)
 }
 
 type capacityCondition struct {
@@ -141,6 +121,7 @@ func (c *nfsCondition) match(v *structuredVolume) bool {
 		return false
 	}
 	return true
+
 }
 
 type csiCondition struct {
@@ -172,22 +153,21 @@ func parseCapacity(cap string) (*capacity, error) {
 	var quantities []resource.Quantity
 	if len(capacities) != 2 {
 		return nil, fmt.Errorf("wrong format of Capacity %v", cap)
-	}
-
-	for _, v := range capacities {
-		if strings.TrimSpace(v) == "" {
-			// case similar "10Gi,"
-			// if empty, the quantity will assigned with 0
-			quantities = append(quantities, *resource.NewQuantity(int64(0), resource.DecimalSI))
-		} else {
-			quantity, err := resource.ParseQuantity(strings.TrimSpace(v))
-			if err != nil {
-				return nil, fmt.Errorf("wrong format of Capacity %v with err %v", v, err)
+	} else {
+		for _, v := range capacities {
+			if strings.TrimSpace(v) == "" {
+				// case similar "10Gi,"
+				// if empty, the quantity will assigned with 0
+				quantities = append(quantities, *resource.NewQuantity(int64(0), resource.DecimalSI))
+			} else {
+				if quantity, err := resource.ParseQuantity(strings.TrimSpace(v)); err != nil {
+					return nil, fmt.Errorf("wrong format of Capacity %v with err %v", v, err)
+				} else {
+					quantities = append(quantities, quantity)
+				}
 			}
-			quantities = append(quantities, quantity)
 		}
 	}
-
 	return &capacity{lower: quantities[0], upper: quantities[1]}, nil
 }
 

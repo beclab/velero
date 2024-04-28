@@ -21,8 +21,6 @@ import (
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
@@ -40,30 +38,20 @@ func NewGetCommand(f client.Factory, use string) *cobra.Command {
 			err := output.ValidateFlags(c)
 			cmd.CheckError(err)
 
-			kbClient, err := f.KubebuilderClient()
+			veleroClient, err := f.Client()
 			cmd.CheckError(err)
 
-			restores := new(api.RestoreList)
+			var restores *api.RestoreList
 			if len(args) > 0 {
+				restores = new(api.RestoreList)
 				for _, name := range args {
-					restore := new(api.Restore)
-					err := kbClient.Get(context.TODO(), controllerclient.ObjectKey{Namespace: f.Namespace(), Name: name}, restore)
+					restore, err := veleroClient.VeleroV1().Restores(f.Namespace()).Get(context.TODO(), name, metav1.GetOptions{})
 					cmd.CheckError(err)
 					restores.Items = append(restores.Items, *restore)
 				}
 			} else {
-				parsedSelector, err := labels.Parse(listOptions.LabelSelector)
+				restores, err = veleroClient.VeleroV1().Restores(f.Namespace()).List(context.TODO(), listOptions)
 				cmd.CheckError(err)
-
-				err = kbClient.List(context.TODO(), restores, &controllerclient.ListOptions{LabelSelector: parsedSelector, Namespace: f.Namespace()})
-				cmd.CheckError(err)
-			}
-
-			// Append "(Deleting)" to phase if deletionTimestamp is marked.
-			for i := range restores.Items {
-				if !restores.Items[i].DeletionTimestamp.IsZero() {
-					restores.Items[i].Status.Phase += " (Deleting)"
-				}
 			}
 
 			if printed, err := output.PrintWithFormat(c, restores); printed || err != nil {

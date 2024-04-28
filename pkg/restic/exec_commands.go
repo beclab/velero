@@ -47,8 +47,8 @@ type backupStatusLine struct {
 
 // GetSnapshotID runs provided 'restic snapshots' command to get the ID of a snapshot
 // and an error if a unique snapshot cannot be identified.
-func GetSnapshotID(snapshotIDCmd *Command) (string, error) {
-	stdout, stderr, err := exec.RunCommand(snapshotIDCmd.Cmd())
+func GetSnapshotID(snapshotIdCmd *Command) (string, error) {
+	stdout, stderr, err := exec.RunCommand(snapshotIdCmd.Cmd())
 	if err != nil {
 		return "", errors.Wrapf(err, "error running command, stderr=%s", stderr)
 	}
@@ -63,7 +63,7 @@ func GetSnapshotID(snapshotIDCmd *Command) (string, error) {
 	}
 
 	if len(snapshots) != 1 {
-		return "", errors.Errorf("expected one matching snapshot by command: %s, got %d", snapshotIDCmd.String(), len(snapshots))
+		return "", errors.Errorf("expected one matching snapshot by command: %s, got %d", snapshotIdCmd.String(), len(snapshots))
 	}
 
 	return snapshots[0].ShortID, nil
@@ -86,7 +86,6 @@ func RunBackup(backupCmd *Command, log logrus.FieldLogger, updater uploader.Prog
 
 	err := cmd.Start()
 	if err != nil {
-		exec.LogErrorAsExitCode(err, log)
 		return stdoutBuf.String(), stderrBuf.String(), err
 	}
 
@@ -105,7 +104,7 @@ func RunBackup(backupCmd *Command, log logrus.FieldLogger, updater uploader.Prog
 					// if the line contains a non-empty bytes_done field, we can update the
 					// caller with the progress
 					if stat.BytesDone != 0 {
-						updater.UpdateProgress(&uploader.Progress{
+						updater.UpdateProgress(&uploader.UploaderProgress{
 							TotalBytes: stat.TotalBytes,
 							BytesDone:  stat.BytesDone,
 						})
@@ -120,7 +119,6 @@ func RunBackup(backupCmd *Command, log logrus.FieldLogger, updater uploader.Prog
 
 	err = cmd.Wait()
 	if err != nil {
-		exec.LogErrorAsExitCode(err, log)
 		return stdoutBuf.String(), stderrBuf.String(), err
 	}
 	quit <- struct{}{}
@@ -138,7 +136,7 @@ func RunBackup(backupCmd *Command, log logrus.FieldLogger, updater uploader.Prog
 	}
 
 	// update progress to 100%
-	updater.UpdateProgress(&uploader.Progress{
+	updater.UpdateProgress(&uploader.UploaderProgress{
 		TotalBytes: stat.TotalBytesProcessed,
 		BytesDone:  stat.TotalBytesProcessed,
 	})
@@ -158,7 +156,7 @@ func decodeBackupStatusLine(lastLine []byte) (backupStatusLine, error) {
 // have a newline at the end of it, so this returns the substring between the
 // last two newlines.
 func getLastLine(b []byte) []byte {
-	if len(b) == 0 {
+	if b == nil || len(b) == 0 {
 		return []byte("")
 	}
 	// subslice the byte array to ignore the newline at the end of the string
@@ -200,7 +198,7 @@ func RunRestore(restoreCmd *Command, log logrus.FieldLogger, updater uploader.Pr
 		return "", "", errors.Wrap(err, "error getting snapshot size")
 	}
 
-	updater.UpdateProgress(&uploader.Progress{
+	updater.UpdateProgress(&uploader.UploaderProgress{
 		TotalBytes: snapshotSize,
 	})
 
@@ -219,7 +217,7 @@ func RunRestore(restoreCmd *Command, log logrus.FieldLogger, updater uploader.Pr
 				}
 
 				if volumeSize != 0 {
-					updater.UpdateProgress(&uploader.Progress{
+					updater.UpdateProgress(&uploader.UploaderProgress{
 						TotalBytes: snapshotSize,
 						BytesDone:  volumeSize,
 					})
@@ -231,11 +229,11 @@ func RunRestore(restoreCmd *Command, log logrus.FieldLogger, updater uploader.Pr
 		}
 	}()
 
-	stdout, stderr, err := exec.RunCommandWithLog(restoreCmd.Cmd(), log)
+	stdout, stderr, err := exec.RunCommand(restoreCmd.Cmd())
 	quit <- struct{}{}
 
 	// update progress to 100%
-	updater.UpdateProgress(&uploader.Progress{
+	updater.UpdateProgress(&uploader.UploaderProgress{
 		TotalBytes: snapshotSize,
 		BytesDone:  snapshotSize,
 	})

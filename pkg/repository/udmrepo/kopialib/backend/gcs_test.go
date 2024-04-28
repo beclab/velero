@@ -20,7 +20,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kopia/kopia/repo/blob/gcs"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/vmware-tanzu/velero/pkg/repository/udmrepo"
@@ -28,10 +27,9 @@ import (
 
 func TestGcsSetup(t *testing.T) {
 	testCases := []struct {
-		name            string
-		flags           map[string]string
-		expectedOptions gcs.Options
-		expectedErr     string
+		name        string
+		flags       map[string]string
+		expectedErr string
 	}{
 		{
 			name:        "must have bucket name",
@@ -45,44 +43,6 @@ func TestGcsSetup(t *testing.T) {
 			},
 			expectedErr: "key " + udmrepo.StoreOptionCredentialFile + " not found",
 		},
-		{
-			name: "with prefix",
-			flags: map[string]string{
-				udmrepo.StoreOptionOssBucket:      "fake-bucket",
-				udmrepo.StoreOptionCredentialFile: "fake-credential",
-				udmrepo.StoreOptionPrefix:         "fake-prefix",
-			},
-			expectedOptions: gcs.Options{
-				BucketName:                    "fake-bucket",
-				ServiceAccountCredentialsFile: "fake-credential",
-				Prefix:                        "fake-prefix",
-			},
-		},
-		{
-			name: "with wrong readonly",
-			flags: map[string]string{
-				udmrepo.StoreOptionOssBucket:      "fake-bucket",
-				udmrepo.StoreOptionCredentialFile: "fake-credential",
-				udmrepo.StoreOptionGcsReadonly:    "fake-bool",
-			},
-			expectedOptions: gcs.Options{
-				BucketName:                    "fake-bucket",
-				ServiceAccountCredentialsFile: "fake-credential",
-			},
-		},
-		{
-			name: "with correct readonly",
-			flags: map[string]string{
-				udmrepo.StoreOptionOssBucket:      "fake-bucket",
-				udmrepo.StoreOptionCredentialFile: "fake-credential",
-				udmrepo.StoreOptionGcsReadonly:    "true",
-			},
-			expectedOptions: gcs.Options{
-				BucketName:                    "fake-bucket",
-				ServiceAccountCredentialsFile: "fake-credential",
-				ReadOnly:                      true,
-			},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -93,7 +53,6 @@ func TestGcsSetup(t *testing.T) {
 
 			if tc.expectedErr == "" {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expectedOptions, gcsFlags.options)
 			} else {
 				assert.EqualError(t, err, tc.expectedErr)
 			}

@@ -20,13 +20,15 @@ import (
 	"fmt"
 	"sort"
 
+	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
+
 	"github.com/vmware-tanzu/velero/internal/hook"
 	"github.com/vmware-tanzu/velero/internal/resourcepolicies"
-	"github.com/vmware-tanzu/velero/internal/volume"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 	"github.com/vmware-tanzu/velero/pkg/plugin/framework"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
+	"github.com/vmware-tanzu/velero/pkg/volume"
 )
 
 type itemKey struct {
@@ -49,14 +51,10 @@ type Request struct {
 	VolumeSnapshots           []*volume.Snapshot
 	PodVolumeBackups          []*velerov1api.PodVolumeBackup
 	BackedUpItems             map[itemKey]struct{}
+	CSISnapshots              []snapshotv1api.VolumeSnapshot
 	itemOperationsList        *[]*itemoperation.BackupOperation
 	ResPolicies               *resourcepolicies.Policies
-	SkippedPVTracker          *skipPVTracker
-	VolumesInformation        volume.BackupVolumesInformation
 }
-
-// BackupVolumesInformation contains the information needs by generating
-// the backup BackupVolumeInfo array.
 
 // GetItemOperationsList returns ItemOperationsList, initializing it if necessary
 func (r *Request) GetItemOperationsList() *[]*itemoperation.BackupOperation {
@@ -85,18 +83,4 @@ func (r *Request) BackupResourceList() map[string][]string {
 	}
 
 	return resources
-}
-
-func (r *Request) FillVolumesInformation() {
-	skippedPVMap := make(map[string]string)
-
-	for _, skippedPV := range r.SkippedPVTracker.Summary() {
-		skippedPVMap[skippedPV.Name] = skippedPV.SerializeSkipReasons()
-	}
-
-	r.VolumesInformation.SkippedPVs = skippedPVMap
-	r.VolumesInformation.NativeSnapshots = r.VolumeSnapshots
-	r.VolumesInformation.PodVolumeBackups = r.PodVolumeBackups
-	r.VolumesInformation.BackupOperations = *r.GetItemOperationsList()
-	r.VolumesInformation.BackupName = r.Backup.Name
 }

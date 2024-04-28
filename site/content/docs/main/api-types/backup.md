@@ -35,8 +35,8 @@ spec:
   csiSnapshotTimeout: 10m
   # ItemOperationTimeout specifies the time used to wait for
   # asynchronous BackupItemAction operations
-  # The default value is 4 hour.
-  itemOperationTimeout: 4h
+  # The default value is 1 hour.
+  itemOperationTimeout: 1h
   # resourcePolicy specifies the referenced resource policies that backup should follow
   # optional
   resourcePolicy:
@@ -120,14 +120,6 @@ spec:
   ttl: 24h0m0s
   # whether pod volume file system backup should be used for all volumes by default.
   defaultVolumesToFsBackup: true
-  # Whether snapshot data should be moved. If set, data movement is launched after the snapshot is created.
-  snapshotMoveData: true
-  # The data mover to be used by the backup. If the value is "" or "velero", the built-in data mover will be used.
-  datamover: velero
-  # UploaderConfig specifies the configuration for the uploader
-  uploaderConfig:
-      # ParallelFilesUpload is the number of files parallel uploads to perform when using the uploader.
-      parallelFilesUpload: 10
   # Actions to perform at different times during a backup. The only hook supported is
   # executing a command in a container in a pod using the pod exec API. Optional.
   hooks:

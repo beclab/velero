@@ -20,12 +20,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/vmware-tanzu/velero/internal/volume"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,12 +31,12 @@ import (
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/cmd/util/downloadrequest"
+	clientset "github.com/vmware-tanzu/velero/pkg/generated/clientset/versioned"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
-	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
 )
 
-func DescribeRestore(ctx context.Context, kbClient kbclient.Client, restore *velerov1api.Restore, podVolumeRestores []velerov1api.PodVolumeRestore, details bool, insecureSkipTLSVerify bool, caCertFile string) string {
+func DescribeRestore(ctx context.Context, kbClient kbclient.Client, restore *velerov1api.Restore, podVolumeRestores []velerov1api.PodVolumeRestore, details bool, veleroClient clientset.Interface, insecureSkipTLSVerify bool, caCertFile string) string {
 	return Describe(func(d *Describer) {
 		d.DescribeMetadata(restore.ObjectMeta)
 
@@ -49,12 +46,6 @@ func DescribeRestore(ctx context.Context, kbClient kbclient.Client, restore *vel
 			phase = velerov1api.RestorePhaseNew
 		}
 		phaseString := string(phase)
-
-		// Append "Deleting" to phaseString if deletionTimestamp is marked.
-		if !restore.DeletionTimestamp.IsZero() {
-			phaseString += " (Deleting)"
-		}
-
 		switch phase {
 		case velerov1api.RestorePhaseCompleted:
 			phaseString = color.GreenString(phaseString)
@@ -151,38 +142,11 @@ func DescribeRestore(ctx context.Context, kbClient kbclient.Client, restore *vel
 		d.Printf("Label selector:\t%s\n", s)
 
 		d.Println()
-		if len(restore.Spec.OrLabelSelectors) == 0 {
-			s = emptyDisplay
-		} else {
-			orLabelSelectors := []string{}
-			for _, v := range restore.Spec.OrLabelSelectors {
-				orLabelSelectors = append(orLabelSelectors, metav1.FormatLabelSelector(v))
-			}
-			s = strings.Join(orLabelSelectors, " or ")
-		}
-		d.Printf("Or label selector:\t%s\n", s)
-
-		d.Println()
 		d.Printf("Restore PVs:\t%s\n", BoolPointerString(restore.Spec.RestorePVs, "false", "true", "auto"))
 
 		if len(podVolumeRestores) > 0 {
 			d.Println()
 			describePodVolumeRestores(d, podVolumeRestores, details)
-		}
-
-		buf := new(bytes.Buffer)
-		if err := downloadrequest.Stream(ctx, kbClient, restore.Namespace, restore.Name, velerov1api.DownloadTargetKindRestoreVolumeInfo,
-			buf, downloadRequestTimeout, insecureSkipTLSVerify, caCertFile); err == nil {
-			var restoreVolInfo []volume.RestoreVolumeInfo
-			if err := json.NewDecoder(buf).Decode(&restoreVolInfo); err != nil {
-				d.Printf("\t<error reading restore volume info: %v>\n", err)
-			} else {
-				describeCSISnapshotsRestores(d, restoreVolInfo, details)
-			}
-		} else if err != nil && !errors.Is(err, downloadrequest.ErrNotFound) {
-			// For the restores by older versions of velero, it will see NotFound Error when downloading the volume info.
-			// In that case, no errors will be printed.
-			d.Printf("\t<error getting restore volume info: %v>\n", err)
 		}
 
 		d.Println()
@@ -196,36 +160,14 @@ func DescribeRestore(ctx context.Context, kbClient kbclient.Client, restore *vel
 		d.Println()
 		d.Printf("Preserve Service NodePorts:\t%s\n", BoolPointerString(restore.Spec.PreserveNodePorts, "false", "true", "auto"))
 
-		describeUploaderConfigForRestore(d, restore.Spec)
-
 		d.Println()
 		describeRestoreItemOperations(ctx, kbClient, d, restore, details, insecureSkipTLSVerify, caCertFile)
 
-		if restore.Status.HookStatus != nil {
-			d.Println()
-			d.Printf("HooksAttempted: \t%d\n", restore.Status.HookStatus.HooksAttempted)
-			d.Printf("HooksFailed: \t%d\n", restore.Status.HookStatus.HooksFailed)
-		}
-
 		if details {
-			d.Println()
 			describeRestoreResourceList(ctx, kbClient, d, restore, insecureSkipTLSVerify, caCertFile)
+			d.Println()
 		}
 	})
-}
-
-// describeUploaderConfigForRestore describes uploader config in human-readable format
-func describeUploaderConfigForRestore(d *Describer, spec velerov1api.RestoreSpec) {
-	if spec.UploaderConfig != nil {
-		d.Println()
-		d.Printf("Uploader config:\n")
-		if boolptr.IsSetToTrue(spec.UploaderConfig.WriteSparseFiles) {
-			d.Printf("\tWrite Sparse Files:\t%v\n", boolptr.IsSetToTrue(spec.UploaderConfig.WriteSparseFiles))
-		}
-		if spec.UploaderConfig.ParallelFilesDownload > 0 {
-			d.Printf("\tParallel Restore:\t%d\n", spec.UploaderConfig.ParallelFilesDownload)
-		}
-	}
 }
 
 func describeRestoreItemOperations(ctx context.Context, kbClient kbclient.Client, d *Describer, restore *velerov1api.Restore, details bool, insecureSkipTLSVerify bool, caCertPath string) {
@@ -375,50 +317,6 @@ func describePodVolumeRestores(d *Describer, restores []velerov1api.PodVolumeRes
 
 			// print volumes restored up for this pod
 			d.Printf("\t\t%s: %s\n", restoreGroup.label, strings.Join(restoreGroup.volumes, ", "))
-		}
-	}
-}
-
-// describeCSISnapshotsRestores describes PVC restored via CSISnapshots, incl. data-movement, in human-readable format.
-func describeCSISnapshotsRestores(d *Describer, restoreVolInfo []volume.RestoreVolumeInfo, details bool) {
-	d.Println()
-	var nonDMInfoList, dmInfoList []volume.RestoreVolumeInfo
-	for _, info := range restoreVolInfo {
-		if info.RestoreMethod != volume.CSISnapshot {
-			continue
-		}
-		if info.SnapshotDataMoved {
-			dmInfoList = append(dmInfoList, info)
-		} else {
-			nonDMInfoList = append(nonDMInfoList, info)
-		}
-	}
-	if len(nonDMInfoList) == 0 && len(dmInfoList) == 0 {
-		d.Printf("CSI Snapshot Restores: <none included>\n")
-		return
-	}
-	d.Printf("CSI Snapshot Restores:\n")
-	for _, info := range nonDMInfoList {
-		// All CSI snapshots are restored via PVC
-		d.Printf("\t%s/%s:\n", info.PVCNamespace, info.PVCName)
-		if details {
-			d.Printf("\t\tSnapshot:\n")
-			d.Printf("\t\t\tSnapshot Content Name: %s\n", info.CSISnapshotInfo.VSCName)
-			d.Printf("\t\t\tStorage Snapshot ID: %s\n", info.CSISnapshotInfo.SnapshotHandle)
-			d.Printf("\t\t\tCSI Driver: %s\n", info.CSISnapshotInfo.Driver)
-		} else {
-			d.Printf("\t\tSnapshot: specify --details for more information\n")
-		}
-	}
-	for _, info := range dmInfoList {
-		d.Printf("\t%s/%s:\n", info.PVCNamespace, info.PVCName)
-		if details {
-			d.Printf("\t\tData Movement:\n")
-			d.Printf("\t\t\tOperation ID: %s\n", info.SnapshotDataMovementInfo.OperationID)
-			d.Printf("\t\t\tData Mover: %s\n", info.SnapshotDataMovementInfo.DataMover)
-			d.Printf("\t\t\tUploader Type: %s\n", info.SnapshotDataMovementInfo.UploaderType)
-		} else {
-			d.Printf("\t\tData Movement: specify --details for more information\n")
 		}
 	}
 }

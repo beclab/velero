@@ -51,6 +51,7 @@ func TestNewClientBuilder(t *testing.T) {
 	assert.Equal(t, []string{"run-plugins", "--log-level", "info", "--features", "feature1,feature2"}, cb.commandArgs)
 	// Clear the features list in case other tests run in the same process.
 	features.NewFeatureFlagSet()
+
 }
 
 func TestClientConfig(t *testing.T) {

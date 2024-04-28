@@ -89,9 +89,3 @@ func (b *ScheduleBuilder) Template(spec velerov1api.BackupSpec) *ScheduleBuilder
 	b.object.Spec.Template = spec
 	return b
 }
-
-// SkipImmediately sets the Schedule's SkipImmediately.
-func (b *ScheduleBuilder) SkipImmediately(skip *bool) *ScheduleBuilder {
-	b.object.Spec.SkipImmediately = skip
-	return b
-}

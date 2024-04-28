@@ -23,21 +23,17 @@ import (
 	"testing"
 	"time"
 
-	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/vmware-tanzu/velero/internal/resourcemodifiers"
-	"github.com/vmware-tanzu/velero/internal/volume"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/builder"
 	"github.com/vmware-tanzu/velero/pkg/metrics"
@@ -50,9 +46,11 @@ import (
 	velerotest "github.com/vmware-tanzu/velero/pkg/test"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
+	"github.com/vmware-tanzu/velero/pkg/volume"
 )
 
 func TestFetchBackupInfo(t *testing.T) {
+
 	tests := []struct {
 		name              string
 		backupName        string
@@ -91,12 +89,11 @@ func TestFetchBackupInfo(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var (
-				fakeClient       = velerotest.NewFakeControllerRuntimeClient(t)
-				fakeGlobalClient = velerotest.NewFakeControllerRuntimeClient(t)
-				restorer         = &fakeRestorer{kbClient: fakeClient}
-				logger           = velerotest.NewLogger()
-				pluginManager    = &pluginmocks.Manager{}
-				backupStore      = &persistencemocks.BackupStore{}
+				fakeClient    = velerotest.NewFakeControllerRuntimeClient(t)
+				restorer      = &fakeRestorer{kbClient: fakeClient}
+				logger        = velerotest.NewLogger()
+				pluginManager = &pluginmocks.Manager{}
+				backupStore   = &persistencemocks.BackupStore{}
 			)
 
 			defer restorer.AssertExpectations(t)
@@ -114,8 +111,6 @@ func TestFetchBackupInfo(t *testing.T) {
 				metrics.NewServerMetrics(),
 				formatFlag,
 				60*time.Minute,
-				false,
-				fakeGlobalClient,
 			)
 
 			if test.backupStoreError == nil {
@@ -160,10 +155,16 @@ func TestProcessQueueItemSkips(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "missing restore returns nil",
+			name:        "invalid key returns error",
+			namespace:   "invalid",
+			restoreName: "key/value",
+			expectError: true,
+		},
+		{
+			name:        "missing restore returns error",
 			namespace:   "foo",
 			restoreName: "bar",
-			expectError: false,
+			expectError: true,
 		},
 	}
 
@@ -172,10 +173,9 @@ func TestProcessQueueItemSkips(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var (
-				fakeClient       = velerotest.NewFakeControllerRuntimeClient(t)
-				fakeGlobalClient = velerotest.NewFakeControllerRuntimeClient(t)
-				restorer         = &fakeRestorer{kbClient: fakeClient}
-				logger           = velerotest.NewLogger()
+				fakeClient = velerotest.NewFakeControllerRuntimeClient(t)
+				restorer   = &fakeRestorer{kbClient: fakeClient}
+				logger     = velerotest.NewLogger()
 			)
 
 			if test.restore != nil {
@@ -194,8 +194,6 @@ func TestProcessQueueItemSkips(t *testing.T) {
 				metrics.NewServerMetrics(),
 				formatFlag,
 				60*time.Minute,
-				false,
-				fakeGlobalClient,
 			)
 
 			_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{
@@ -209,6 +207,7 @@ func TestProcessQueueItemSkips(t *testing.T) {
 }
 
 func TestRestoreReconcile(t *testing.T) {
+
 	defaultStorageLocation := builder.ForBackupStorageLocation("velero", "default").Provider("myCloud").Bucket("bucket").Result()
 
 	now, err := time.Parse(time.RFC1123Z, time.RFC1123Z)
@@ -235,8 +234,6 @@ func TestRestoreReconcile(t *testing.T) {
 		backupStoreGetBackupContentsErr error
 		putRestoreLogErr                error
 		expectedFinalPhase              string
-		addValidFinalizer               bool
-		emptyVolumeInfo                 bool
 	}{
 		{
 			name:                     "restore with both namespace in both includedNamespaces and excludedNamespaces fails validation",
@@ -394,41 +391,6 @@ func TestRestoreReconcile(t *testing.T) {
 			backupStoreGetBackupContentsErr: errors.New("Couldn't download backup"),
 			backup:                          defaultBackup().StorageLocation("default").Result(),
 		},
-		{
-			name:              "restore attached with an expected finalizer gets cleaned up successfully",
-			location:          defaultStorageLocation,
-			restore:           NewRestore("foo", "bar", "backup-1", "ns-1", "", velerov1api.RestorePhaseCompleted).ObjectMeta(builder.WithFinalizers(ExternalResourcesFinalizer), builder.WithDeletionTimestamp(timestamp.Time)).Result(),
-			backup:            defaultBackup().StorageLocation("default").Result(),
-			expectedErr:       false,
-			addValidFinalizer: true,
-		},
-		{
-			name:              "restore attached with an unknown finalizer will be skipped",
-			location:          defaultStorageLocation,
-			restore:           NewRestore("foo", "bar", "backup-1", "ns-1", "", velerov1api.RestorePhaseCompleted).ObjectMeta(builder.WithFinalizers("restores.velero.io/unknown-finalizer"), builder.WithDeletionTimestamp(timestamp.Time)).Result(),
-			backup:            defaultBackup().StorageLocation("default").Result(),
-			expectedErr:       false,
-			addValidFinalizer: false,
-		},
-		{
-			name:        "completed restore will be skipped",
-			location:    defaultStorageLocation,
-			restore:     NewRestore("foo", "bar", "backup-1", "ns-1", "", velerov1api.RestorePhaseCompleted).Result(),
-			backup:      defaultBackup().StorageLocation("default").Result(),
-			expectedErr: false,
-		},
-		{
-			name:                  "valid restore with empty VolumeInfos",
-			location:              defaultStorageLocation,
-			restore:               NewRestore("foo", "bar", "backup-1", "ns-1", "", velerov1api.RestorePhaseNew).Result(),
-			backup:                defaultBackup().StorageLocation("default").Result(),
-			emptyVolumeInfo:       true,
-			expectedErr:           false,
-			expectedPhase:         string(velerov1api.RestorePhaseInProgress),
-			expectedStartTime:     &timestamp,
-			expectedCompletedTime: &timestamp,
-			expectedRestorerCall:  NewRestore("foo", "bar", "backup-1", "ns-1", "", velerov1api.RestorePhaseInProgress).Result(),
-		},
 	}
 
 	formatFlag := logging.FormatText
@@ -436,12 +398,11 @@ func TestRestoreReconcile(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var (
-				fakeClient       = velerotest.NewFakeControllerRuntimeClientBuilder(t).Build()
-				fakeGlobalClient = velerotest.NewFakeControllerRuntimeClient(t)
-				restorer         = &fakeRestorer{kbClient: fakeClient}
-				logger           = velerotest.NewLogger()
-				pluginManager    = &pluginmocks.Manager{}
-				backupStore      = &persistencemocks.BackupStore{}
+				fakeClient    = velerotest.NewFakeControllerRuntimeClientBuilder(t).Build()
+				restorer      = &fakeRestorer{kbClient: fakeClient}
+				logger        = velerotest.NewLogger()
+				pluginManager = &pluginmocks.Manager{}
+				backupStore   = &persistencemocks.BackupStore{}
 			)
 
 			defer restorer.AssertExpectations(t)
@@ -463,8 +424,6 @@ func TestRestoreReconcile(t *testing.T) {
 				metrics.NewServerMetrics(),
 				formatFlag,
 				60*time.Minute,
-				false,
-				fakeGlobalClient,
 			)
 
 			r.clock = clocktesting.NewFakeClock(now)
@@ -476,15 +435,7 @@ func TestRestoreReconcile(t *testing.T) {
 			}
 
 			if test.restore != nil {
-				isDeletionTimestampSet := test.restore.DeletionTimestamp != nil
 				require.NoError(t, r.kbClient.Create(context.Background(), test.restore))
-				// because of the changes introduced by https://github.com/kubernetes-sigs/controller-runtime/commit/7a66d580c0c53504f5b509b45e9300cc18a1cc30
-				// the fake client ignores the DeletionTimestamp when calling the Create(),
-				// so call Delete() here
-				if isDeletionTimestampSet {
-					err = r.kbClient.Delete(ctx, test.restore)
-					require.NoError(t, err)
-				}
 			}
 
 			var warnings, errors results.Result
@@ -496,7 +447,6 @@ func TestRestoreReconcile(t *testing.T) {
 			}
 			if test.expectedRestorerCall != nil {
 				backupStore.On("GetBackupContents", test.backup.Name).Return(io.NopCloser(bytes.NewReader([]byte("hello world"))), nil)
-				backupStore.On("GetCSIVolumeSnapshots", test.backup.Name).Return([]*snapshotv1api.VolumeSnapshot{}, nil)
 
 				restorer.On("RestoreWithResolvers", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(warnings, errors)
@@ -506,12 +456,6 @@ func TestRestoreReconcile(t *testing.T) {
 				backupStore.On("PutRestoreResults", test.backup.Name, test.restore.Name, mock.Anything).Return(nil)
 				backupStore.On("PutRestoredResourceList", test.restore.Name, mock.Anything).Return(nil)
 				backupStore.On("PutRestoreItemOperations", mock.Anything, mock.Anything).Return(nil)
-				backupStore.On("PutRestoreVolumeInfo", test.restore.Name, mock.Anything).Return(nil)
-				if test.emptyVolumeInfo == true {
-					backupStore.On("GetBackupVolumeInfos", test.backup.Name).Return(nil, nil)
-				} else {
-					backupStore.On("GetBackupVolumeInfos", test.backup.Name).Return([]*volume.BackupVolumeInfo{}, nil)
-				}
 
 				volumeSnapshots := []*volume.Snapshot{
 					{
@@ -537,10 +481,6 @@ func TestRestoreReconcile(t *testing.T) {
 			if test.restore != nil {
 				pluginManager.On("GetRestoreItemActionsV2").Return(nil, nil)
 				pluginManager.On("CleanupClients")
-			}
-
-			if test.addValidFinalizer {
-				backupStore.On("DeleteRestore", test.restore.Name).Return(nil)
 			}
 
 			//err = r.processQueueItem(key)
@@ -596,9 +536,7 @@ func TestRestoreReconcile(t *testing.T) {
 				assert.Zero(t, restorer.calledWithArg)
 				return
 			}
-			if !test.addValidFinalizer {
-				assert.Len(t, restorer.Calls, 1)
-			}
+			assert.Equal(t, 1, len(restorer.Calls))
 
 			// validate Patch call 2 (setting phase)
 
@@ -633,11 +571,10 @@ func TestValidateAndCompleteWhenScheduleNameSpecified(t *testing.T) {
 	formatFlag := logging.FormatText
 
 	var (
-		logger           = velerotest.NewLogger()
-		pluginManager    = &pluginmocks.Manager{}
-		fakeClient       = velerotest.NewFakeControllerRuntimeClient(t)
-		fakeGlobalClient = velerotest.NewFakeControllerRuntimeClient(t)
-		backupStore      = &persistencemocks.BackupStore{}
+		logger        = velerotest.NewLogger()
+		pluginManager = &pluginmocks.Manager{}
+		fakeClient    = velerotest.NewFakeControllerRuntimeClient(t)
+		backupStore   = &persistencemocks.BackupStore{}
 	)
 
 	r := NewRestoreReconciler(
@@ -652,8 +589,6 @@ func TestValidateAndCompleteWhenScheduleNameSpecified(t *testing.T) {
 		metrics.NewServerMetrics(),
 		formatFlag,
 		60*time.Minute,
-		false,
-		fakeGlobalClient,
 	)
 
 	restore := &velerov1api.Restore{
@@ -722,149 +657,6 @@ func TestValidateAndCompleteWhenScheduleNameSpecified(t *testing.T) {
 	r.validateAndComplete(restore)
 	assert.Nil(t, restore.Status.ValidationErrors)
 	assert.Equal(t, "foo", restore.Spec.BackupName)
-}
-
-func TestValidateAndCompleteWithResourceModifierSpecified(t *testing.T) {
-	formatFlag := logging.FormatText
-
-	var (
-		logger           = velerotest.NewLogger()
-		pluginManager    = &pluginmocks.Manager{}
-		fakeClient       = velerotest.NewFakeControllerRuntimeClient(t)
-		fakeGlobalClient = velerotest.NewFakeControllerRuntimeClient(t)
-		backupStore      = &persistencemocks.BackupStore{}
-	)
-
-	r := NewRestoreReconciler(
-		context.Background(),
-		velerov1api.DefaultNamespace,
-		nil,
-		fakeClient,
-		logger,
-		logrus.DebugLevel,
-		func(logrus.FieldLogger) clientmgmt.Manager { return pluginManager },
-		NewFakeSingleObjectBackupStoreGetter(backupStore),
-		metrics.NewServerMetrics(),
-		formatFlag,
-		60*time.Minute,
-		false,
-		fakeGlobalClient,
-	)
-
-	restore := &velerov1api.Restore{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: velerov1api.DefaultNamespace,
-			Name:      "restore-1",
-		},
-		Spec: velerov1api.RestoreSpec{
-			BackupName: "backup-1",
-			ResourceModifier: &corev1.TypedLocalObjectReference{
-				Kind: resourcemodifiers.ConfigmapRefType,
-				Name: "test-configmap",
-			},
-		},
-	}
-
-	location := builder.ForBackupStorageLocation("velero", "default").Provider("myCloud").Bucket("bucket").Result()
-	require.NoError(t, r.kbClient.Create(context.Background(), location))
-
-	require.NoError(t, r.kbClient.Create(
-		context.Background(),
-		defaultBackup().
-			ObjectMeta(
-				builder.WithName("backup-1"),
-			).StorageLocation("default").
-			Phase(velerov1api.BackupPhaseCompleted).
-			Result(),
-	))
-
-	r.validateAndComplete(restore)
-	assert.Contains(t, restore.Status.ValidationErrors[0], "failed to get resource modifiers configmap")
-
-	restore1 := &velerov1api.Restore{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: velerov1api.DefaultNamespace,
-			Name:      "restore-1",
-		},
-		Spec: velerov1api.RestoreSpec{
-			BackupName: "backup-1",
-			ResourceModifier: &corev1.TypedLocalObjectReference{
-				Kind: resourcemodifiers.ConfigmapRefType,
-				Name: "test-configmap",
-			},
-		},
-	}
-
-	cm1 := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-configmap",
-			Namespace: velerov1api.DefaultNamespace,
-		},
-		Data: map[string]string{
-			"sub.yml": "version: v1\nresourceModifierRules:\n- conditions:\n    groupResource: persistentvolumeclaims\n    resourceNameRegex: \".*\"\n    namespaces:\n    - bar\n    - foo\n  patches:\n  - operation: replace\n    path: \"/spec/storageClassName\"\n    value: \"premium\"\n  - operation: remove\n    path: \"/metadata/labels/test\"\n\n\n",
-		},
-	}
-	require.NoError(t, r.kbClient.Create(context.Background(), cm1))
-
-	r.validateAndComplete(restore1)
-	assert.Nil(t, restore1.Status.ValidationErrors)
-
-	restore2 := &velerov1api.Restore{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: velerov1api.DefaultNamespace,
-			Name:      "restore-1",
-		},
-		Spec: velerov1api.RestoreSpec{
-			BackupName: "backup-1",
-			ResourceModifier: &corev1.TypedLocalObjectReference{
-				// intentional to ensure case insensitivity works as expected
-				Kind: "confIGMaP",
-				Name: "test-configmap-invalid",
-			},
-		},
-	}
-
-	invalidVersionCm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-configmap-invalid",
-			Namespace: velerov1api.DefaultNamespace,
-		},
-		Data: map[string]string{
-			"sub.yml": "version1: v1\nresourceModifierRules:\n- conditions:\n    groupResource: persistentvolumeclaims\n    resourceNameRegex: \".*\"\n    namespaces:\n    - bar\n    - foo\n  patches:\n  - operation: replace\n    path: \"/spec/storageClassName\"\n    value: \"premium\"\n  - operation: remove\n    path: \"/metadata/labels/test\"\n\n\n",
-		},
-	}
-	require.NoError(t, r.kbClient.Create(context.Background(), invalidVersionCm))
-
-	r.validateAndComplete(restore2)
-	assert.Contains(t, restore2.Status.ValidationErrors[0], "Error in parsing resource modifiers provided in configmap")
-
-	restore3 := &velerov1api.Restore{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: velerov1api.DefaultNamespace,
-			Name:      "restore-1",
-		},
-		Spec: velerov1api.RestoreSpec{
-			BackupName: "backup-1",
-			ResourceModifier: &corev1.TypedLocalObjectReference{
-				Kind: resourcemodifiers.ConfigmapRefType,
-				Name: "test-configmap-invalid-operator",
-			},
-		},
-	}
-
-	invalidOperatorCm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-configmap-invalid-operator",
-			Namespace: velerov1api.DefaultNamespace,
-		},
-		Data: map[string]string{
-			"sub.yml": "version: v1\nresourceModifierRules:\n- conditions:\n    groupResource: persistentvolumeclaims\n    resourceNameRegex: \".*\"\n    namespaces:\n    - bar\n    - foo\n  patches:\n  - operation: invalid\n    path: \"/spec/storageClassName\"\n    value: \"premium\"\n  - operation: remove\n    path: \"/metadata/labels/test\"\n\n\n",
-		},
-	}
-	require.NoError(t, r.kbClient.Create(context.Background(), invalidOperatorCm))
-
-	r.validateAndComplete(restore3)
-	assert.Contains(t, restore3.Status.ValidationErrors[0], "Validation error in resource modifiers provided in configmap")
 }
 
 func TestBackupXorScheduleProvided(t *testing.T) {

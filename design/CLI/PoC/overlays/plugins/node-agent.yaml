@@ -49,9 +49,6 @@ spec:
             - mountPath: /host_pods
               mountPropagation: HostToContainer
               name: host-pods
-            - mountPath: /var/lib/kubelet/plugins
-              mountPropagation: HostToContainer
-              name: host-plugins
             - mountPath: /scratch
               name: scratch
             - mountPath: /credentials
@@ -63,9 +60,6 @@ spec:
         - hostPath:
             path: /var/lib/kubelet/pods
           name: host-pods
-        - hostPath:
-            path: /var/lib/kubelet/plugins
-          name: host-plugins
         - emptyDir: {}
           name: scratch
         - name: cloud-credentials

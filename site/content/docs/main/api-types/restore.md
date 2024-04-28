@@ -37,14 +37,8 @@ spec:
   scheduleName: my-scheduled-backup-name
   # ItemOperationTimeout specifies the time used to wait for
   # asynchronous BackupItemAction operations
-  # The default value is 4 hour.
-  itemOperationTimeout: 4h
-  # UploaderConfig specifies the configuration for the restore.
-  uploaderConfig:
-    # WriteSparseFiles is a flag to indicate whether write files sparsely or not
-    writeSparseFiles: true
-    # ParallelFilesDownload is the concurrency number setting for restore
-    parallelFilesDownload: 10
+  # The default value is 1 hour.
+  itemOperationTimeout: 1h
   # Array of namespaces to include in the restore. If unspecified, all namespaces are included.
   # Optional.
   includedNamespaces:
@@ -109,7 +103,7 @@ spec:
   # so that the exposed port numbers on the node will remain the same after restore. Optional
   preserveNodePorts: true
   # existingResourcePolicy specifies the restore behaviour
-  # for the Kubernetes resource to be restored. Optional
+  # for the kubernetes resource to be restored. Optional
   existingResourcePolicy: none
   # Actions to perform during or post restore. The only hooks currently supported are
   # adding an init container to a pod before it can be restored and executing a command in a

@@ -101,11 +101,11 @@ func (bs *FakeVolumeSnapshotter) GetVolumeInfo(volumeID, volumeAZ string) (strin
 		return "", nil, bs.Error
 	}
 
-	volumeInfo, exists := bs.SnapshottableVolumes[volumeID]
-	if !exists {
+	if volumeInfo, exists := bs.SnapshottableVolumes[volumeID]; !exists {
 		return "", nil, errors.New("VolumeID not found")
+	} else {
+		return volumeInfo.Type, volumeInfo.Iops, nil
 	}
-	return volumeInfo.Type, volumeInfo.Iops, nil
 }
 
 func (bs *FakeVolumeSnapshotter) GetVolumeID(pv runtime.Unstructured) (string, error) {
