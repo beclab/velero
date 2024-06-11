@@ -30,8 +30,7 @@ WORKDIR /go/src/github.com/vmware-tanzu/velero
 
 COPY . /go/src/github.com/vmware-tanzu/velero
 
-RUN mkdir -p /output/usr/bin && \
-  go build -o /output/${BIN} ${PKG}/cmd/${BIN}
+RUN mkdir -p /output/usr/bin && go build -o /output/${BIN} ${PKG}/cmd/${BIN}
 
 # Restic binary build section
 FROM --platform=$BUILDPLATFORM golang:1.19.8-bullseye as restic-builder
@@ -44,7 +43,6 @@ ARG RESTIC_VERSION
 
 env CGO_ENABLED=0 \
   GO111MODULE=on \
-  GOPROXY=${GOPROXY} \
   GOOS=${TARGETOS} \
   GOARCH=${TARGETARCH}
 
