@@ -24,4 +24,11 @@ jobs:
       with:
         push: true
         tags: beclab/velero:${{ github.event.inputs.tags }}
-        file: Dockerfile.bak
+        file: Dockerfile1
+        build-args: |
+          BIN=velero
+          VERSION=${{ github.event.inputs.tags }}
+          PKG=github.com/beclab/velero
+          TARGETOS=linux
+          TARGETARCH=amd64
+          RESTIC_VERSION=0.15.0
