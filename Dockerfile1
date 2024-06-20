@@ -13,18 +13,14 @@
 # limitations under the License.
 
 # Velero binary build section
-FROM --platform=$BUILDPLATFORM golang:1.19.8-bullseye as velero-builder
+FROM golang:1.19.8-bullseye as velero-builder
 
 ARG BIN
 ARG PKG
 ARG VERSION
-ARG TARGETOS
-ARG TARGETARCH
 
 ENV CGO_ENABLED=0 \
-  GO111MODULE=on \
-  GOOS=${TARGETOS} \
-  GOARCH=${TARGETARCH}
+  GO111MODULE=on
 
 WORKDIR /go/src/github.com/vmware-tanzu/velero
 
@@ -32,33 +28,17 @@ COPY . /go/src/github.com/vmware-tanzu/velero
 
 RUN mkdir -p /output/usr/bin && go build -ldflags="-s -w" -o /output/${BIN} ${PKG}/cmd/${BIN}
 
-# Restic binary build section
-FROM --platform=$BUILDPLATFORM golang:1.19.8-bullseye as restic-builder
-
-ARG BIN
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
-ARG RESTIC_VERSION
-
-env CGO_ENABLED=0 \
-  GO111MODULE=on \
-  GOOS=${TARGETOS} \
-  GOARCH=${TARGETARCH}
-
-COPY . /go/src/github.com/vmware-tanzu/velero
-
-RUN mkdir -p /output/usr/bin && \
-  /go/src/github.com/vmware-tanzu/velero/hack/build-restic.sh
+FROM restic/restic:0.16.0 as restic-builder
 
 # Velero image packing section
 FROM gcr.io/distroless/base-nossl-debian11@sha256:9523ef8cf054e23a81e722d231c6f604ab43a03c5b174b5c8386c78c0b6473d0
+# FROM busybox:latest
 
 LABEL maintainer="Nolan Brubaker <brubakern@vmware.com>"
 
 COPY --from=velero-builder /output /
 
-COPY --from=restic-builder /output /
+COPY --from=restic-builder /usr/bin/restic /restic
 
 USER nonroot:nonroot
 
