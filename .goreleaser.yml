@@ -14,46 +14,48 @@
 
 dist: _output
 builds:
-  - main: ./cmd/velero/velero.go
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm
-      - arm64
-      - ppc64le
-    ignore:
-      # don't build arm for darwin and arm/arm64 for windows
-      - goos: darwin
-        goarch: arm
-      - goos: darwin
-        goarch: ppc64le
-      - goos: windows
-        goarch: arm
-      - goos: windows
-        goarch: arm64
-      - goos: windows
-        goarch: ppc64le
-    ldflags:
-      - -X "github.com/vmware-tanzu/velero/pkg/buildinfo.Version={{ .Tag }}" -X "github.com/vmware-tanzu/velero/pkg/buildinfo.GitSHA={{ .FullCommit }}" -X "github.com/vmware-tanzu/velero/pkg/buildinfo.GitTreeState={{ .Env.GIT_TREE_STATE }}" -X "github.com/vmware-tanzu/velero/pkg/buildinfo.ImageRegistry={{ .Env.REGISTRY }}"
+- main: ./cmd/velero/velero.go
+  env:
+  - CGO_ENABLED=0
+  goos:
+  - linux
+  - darwin
+  - windows
+  goarch:
+  - amd64
+  - arm
+  - arm64
+  - ppc64le
+  ignore:
+  # don't build arm for darwin and arm/arm64 for windows
+  - goos: darwin
+    goarch: arm
+  - goos: darwin
+    goarch: ppc64le
+  - goos: windows
+    goarch: arm
+  - goos: windows
+    goarch: arm64
+  - goos: windows
+    goarch: ppc64le
+  ldflags:
+  - -X "github.com/beclab/velero/pkg/buildinfo.Version={{ .Tag }}"
+  - -w
+  - -s
 archives:
-  - name_template: "{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
-    wrap_in_directory: true
-    files:
-      - LICENSE
-      - examples/**/*
-    # Add the setting to resolve the DEPRECATED warning. Actually, Velero's case is not affected by the rlcp behavior change.
-    # https://github.com/orgs/goreleaser/discussions/3659#discussioncomment-4587257
-    rlcp: true 
+- name_template: "{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
+  wrap_in_directory: true
+  files:
+  - LICENSE
+  - examples/**/*
+  # Add the setting to resolve the DEPRECATED warning. Actually, Velero's case is not affected by the rlcp behavior change.
+  # https://github.com/orgs/goreleaser/discussions/3659#discussioncomment-4587257
+  rlcp: true
 checksum:
   name_template: 'CHECKSUM'
 release:
   github:
-    owner: vmware-tanzu
+    owner: beclab
     name: velero
   draft: true
   prerelease: auto
