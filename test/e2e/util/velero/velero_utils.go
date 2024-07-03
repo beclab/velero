@@ -158,6 +158,7 @@ func getProviderVeleroInstallOptions(veleroCfg *VeleroConfig,
 	io := cliinstall.NewInstallOptions()
 	// always wait for velero and restic pods to be running.
 	io.Wait = true
+	io.WaitMinute = 3
 	io.ProviderName = veleroCfg.ObjectStoreProvider
 	io.SecretFile = veleroCfg.CloudCredentialsFile
 
