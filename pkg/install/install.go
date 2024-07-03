@@ -165,7 +165,7 @@ func isAvailable(c appsv1.DeploymentCondition) bool {
 }
 
 // DeploymentIsReady will poll the kubernetes API server to see if the velero deployment is ready to service user requests.
-func DeploymentIsReady(factory client.DynamicFactory, namespace string) (bool, error) {
+func DeploymentIsReady(factory client.DynamicFactory, namespace string, waitMinute int64) (bool, error) {
 	gvk := schema.FromAPIVersionAndKind(appsv1.SchemeGroupVersion.String(), "Deployment")
 	apiResource := metav1.APIResource{
 		Name:       "deployments",
@@ -178,7 +178,7 @@ func DeploymentIsReady(factory client.DynamicFactory, namespace string) (bool, e
 	// declare this variable out of scope so we can return it
 	var isReady bool
 	var readyObservations int32
-	err = wait.PollImmediate(time.Second, 3*time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(time.Second, time.Duration(waitMinute)*time.Minute, func() (bool, error) {
 		unstructuredDeployment, err := c.Get("velero", metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -209,7 +209,7 @@ func DeploymentIsReady(factory client.DynamicFactory, namespace string) (bool, e
 
 // DaemonSetIsReady will poll the kubernetes API server to ensure the node-agent daemonset is ready, i.e. that
 // pods are scheduled and available on all of the desired nodes.
-func DaemonSetIsReady(factory client.DynamicFactory, namespace string) (bool, error) {
+func DaemonSetIsReady(factory client.DynamicFactory, namespace string, waitMinute int64) (bool, error) {
 	gvk := schema.FromAPIVersionAndKind(appsv1.SchemeGroupVersion.String(), "DaemonSet")
 	apiResource := metav1.APIResource{
 		Name:       "daemonsets",
@@ -225,7 +225,7 @@ func DaemonSetIsReady(factory client.DynamicFactory, namespace string) (bool, er
 	var isReady bool
 	var readyObservations int32
 
-	err = wait.PollImmediate(time.Second, time.Minute, func() (bool, error) {
+	err = wait.PollImmediate(time.Second, time.Duration(waitMinute)*time.Minute, func() (bool, error) {
 		unstructuredDaemonSet, err := c.Get("node-agent", metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			return false, nil

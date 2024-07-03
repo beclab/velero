@@ -69,6 +69,7 @@ type InstallOptions struct {
 	//TODO remove UseRestic when migration test out of using it
 	UseRestic                       bool
 	Wait                            bool
+	WaitMinute                      int64
 	UseVolumeSnapshots              bool
 	DefaultRepoMaintenanceFrequency time.Duration
 	GarbageCollectionFrequency      time.Duration
@@ -110,6 +111,7 @@ func (o *InstallOptions) BindFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&o.DryRun, "dry-run", o.DryRun, "Generate resources, but don't send them to the cluster. Use with -o. Optional.")
 	flags.BoolVar(&o.UseNodeAgent, "use-node-agent", o.UseNodeAgent, "Create Velero node-agent daemonset. Optional. Velero node-agent hosts Velero modules that need to run in one or more nodes(i.e. Restic, Kopia).")
 	flags.BoolVar(&o.Wait, "wait", o.Wait, "Wait for Velero deployment to be ready. Optional.")
+	flags.Int64Var(&o.WaitMinute, "wait-minute", o.WaitMinute, "Wait minute for Velero deployment to be ready. Optional.")
 	flags.DurationVar(&o.DefaultRepoMaintenanceFrequency, "default-repo-maintain-frequency", o.DefaultRepoMaintenanceFrequency, "How often 'maintain' is run for backup repositories by default. Optional.")
 	flags.DurationVar(&o.GarbageCollectionFrequency, "garbage-collection-frequency", o.GarbageCollectionFrequency, "How often the garbage collection runs for expired backups.(default 1h)")
 	flags.Var(&o.Plugins, "plugins", "Plugin container images to install into the Velero Deployment")
@@ -302,14 +304,18 @@ func (o *InstallOptions) Run(c *cobra.Command, f client.Factory) error {
 	}
 
 	if o.Wait {
+		var waitMinutes = o.WaitMinute
+		if waitMinutes < 3 {
+			waitMinutes = 3
+		}
 		fmt.Println("Waiting for Velero deployment to be ready.")
-		if _, err = install.DeploymentIsReady(dynamicFactory, o.Namespace); err != nil {
+		if _, err = install.DeploymentIsReady(dynamicFactory, o.Namespace, waitMinutes); err != nil {
 			return errors.Wrap(err, errorMsg)
 		}
 
 		if o.UseNodeAgent {
 			fmt.Println("Waiting for node-agent daemonset to be ready.")
-			if _, err = install.DaemonSetIsReady(dynamicFactory, o.Namespace); err != nil {
+			if _, err = install.DaemonSetIsReady(dynamicFactory, o.Namespace, waitMinutes); err != nil {
 				return errors.Wrap(err, errorMsg)
 			}
 		}
