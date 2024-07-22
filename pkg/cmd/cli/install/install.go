@@ -70,6 +70,8 @@ type InstallOptions struct {
 	UseRestic                       bool
 	Wait                            bool
 	WaitMinute                      int64
+	Retry                           int
+	Delay                           int // seconds
 	UseVolumeSnapshots              bool
 	DefaultRepoMaintenanceFrequency time.Duration
 	GarbageCollectionFrequency      time.Duration
@@ -112,6 +114,8 @@ func (o *InstallOptions) BindFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&o.UseNodeAgent, "use-node-agent", o.UseNodeAgent, "Create Velero node-agent daemonset. Optional. Velero node-agent hosts Velero modules that need to run in one or more nodes(i.e. Restic, Kopia).")
 	flags.BoolVar(&o.Wait, "wait", o.Wait, "Wait for Velero deployment to be ready. Optional.")
 	flags.Int64Var(&o.WaitMinute, "wait-minute", o.WaitMinute, "Wait minute for Velero deployment to be ready. Optional.")
+	flags.IntVar(&o.Retry, "retry", o.Retry, "Set the retry count for resource creation. Optional.")
+	flags.IntVar(&o.Delay, "delay", o.Delay, "Set the retry interval, unit: seconds. Optional.")
 	flags.DurationVar(&o.DefaultRepoMaintenanceFrequency, "default-repo-maintain-frequency", o.DefaultRepoMaintenanceFrequency, "How often 'maintain' is run for backup repositories by default. Optional.")
 	flags.DurationVar(&o.GarbageCollectionFrequency, "garbage-collection-frequency", o.GarbageCollectionFrequency, "How often the garbage collection runs for expired backups.(default 1h)")
 	flags.Var(&o.Plugins, "plugins", "Plugin container images to install into the Velero Deployment")
@@ -298,10 +302,27 @@ func (o *InstallOptions) Run(c *cobra.Command, f client.Factory) error {
 	}
 	errorMsg := fmt.Sprintf("\n\nError installing Velero. Use `kubectl logs deploy/velero -n %s` to check the deploy logs", o.Namespace)
 
-	err = install.Install(dynamicFactory, kbClient, resources, os.Stdout)
-	if err != nil {
-		return errors.Wrap(err, errorMsg)
+	var retry = o.Retry
+	var delay = o.Delay
+
+	if retry < 0 {
+		retry = 1
 	}
+
+	for i := 0; i < retry; i++ {
+		err = install.Install(dynamicFactory, kbClient, resources, os.Stdout)
+		if err != nil && (i+1 == retry) {
+			return errors.Wrap(err, errorMsg)
+		}
+		if i+1 < retry {
+			time.Sleep(time.Duration(delay) * time.Second)
+		}
+	}
+
+	// err = install.Install(dynamicFactory, kbClient, resources, os.Stdout)
+	// if err != nil {
+	// 	return errors.Wrap(err, errorMsg)
+	// }
 
 	if o.Wait {
 		var waitMinutes = o.WaitMinute
