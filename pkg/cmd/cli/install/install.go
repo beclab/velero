@@ -305,12 +305,13 @@ func (o *InstallOptions) Run(c *cobra.Command, f client.Factory) error {
 	var retry = o.Retry
 	var delay = o.Delay
 
-	if retry < 0 {
+	if retry <= 0 {
 		retry = 1
 	}
 
 	for i := 0; i < retry; i++ {
 		err = install.Install(dynamicFactory, kbClient, resources, os.Stdout)
+
 		if err != nil && (i+1 == retry) {
 			return errors.Wrap(err, errorMsg)
 		}
